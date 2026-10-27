@@ -1,0 +1,53 @@
+#errorCatcher Echo
+## Latest archive record + today's statistics from the LIVE binding.
+## Fallback for the live MQTT feed and source of today's highs/lows.
+#set $J = $jhwx
+#set $L = $J.live_binding
+#set $c = $latest($L)
+#set $d = $live.day
+#set $m = $live.month
+#set $y = $live.year
+{
+  "generated": $J.num($J.now),
+  "units": $J.units($unit),
+  "binding": $J.str($L),
+  "record": {
+    "dateTime": $J.num($c.dateTime),
+    "interval_min": $J.num($c.interval),
+#for $f in ['outTemp', 'appTemp', 'dewpoint', 'windchill', 'heatindex', 'outHumidity', 'barometer', 'pressure', 'altimeter', 'windSpeed', 'windGust', 'windDir', 'windGustDir', 'rain', 'rainRate', 'radiation', 'maxSolarRad', 'UV', 'cloudbase', 'inTemp', 'inHumidity', 'inDewpoint'] + $J.power_fields
+    $J.str($f): $J.num($getattr($c, $f)),
+#end for
+    "_end": null
+  },
+  "today": {
+#for $f in ['outTemp', 'dewpoint', 'appTemp', 'outHumidity', 'barometer', 'inTemp', 'inHumidity', 'radiation', 'UV', 'windSpeed'] + $J.power_fields
+#set $s = $getattr($d, $f)
+    $J.str($f): {"max": $J.num($s.max), "maxtime": $J.num($s.maxtime), "min": $J.num($s.min), "mintime": $J.num($s.mintime), "avg": $J.num($s.avg)},
+#end for
+    "windGust": {"max": $J.num($d.windGust.max), "maxtime": $J.num($d.windGust.maxtime), "dir": $J.num($d.wind.gustdir)},
+    "rain": {"sum": $J.num($d.rain.sum), "maxRate": $J.num($d.rainRate.max), "maxRateTime": $J.num($d.rainRate.maxtime)},
+    "uv_window": $J.uv_window($L, $d.start, $d.end),
+    "radiation_energy": $J.num($J.solar_energy($L, $d.start, $d.end)),
+    "ET": $J.num($d.ET.sum),
+    "windrun": $J.num($d.windrun.sum)
+  },
+  "rain": {
+    "day": $J.num($d.rain.sum),
+    "last24h": $J.num($live.span($hour_delta=24).rain.sum),
+    "yesterday": $J.num($live.yesterday.rain.sum),
+    "month": $J.num($m.rain.sum),
+    "year": $J.num($y.rain.sum),
+    "rainyear": $J.num($live.rainyear.rain.sum),
+    "last_rain": $J.num($J.last_nonzero($L, 'rain', $c.dateTime))
+  },
+## 7-day water balance: rain over the same span as the ET total (which
+## starts no earlier than ET's record cutoff)
+#set $et_from = max($c.dateTime.raw - 604800, $J.record_cutoff.get('ET', 0))
+  "et": {
+    "day": $J.total($L, 'ET', $d.start, $c.dateTime),
+    "yesterday": $J.total($L, 'ET', $d.start.raw - 86400, $d.start),
+    "last7": $J.total($L, 'ET', $et_from, $c.dateTime),
+    "rain7": $J.total($L, 'rain', $et_from, $c.dateTime)
+  },
+  "fire": {"df": $J.fire('df'), "kbdi": $J.fire('kbdi'), "annual_rain": $J.fire('annual_rain')}
+}

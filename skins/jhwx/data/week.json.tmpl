@@ -1,0 +1,14 @@
+#errorCatcher Echo
+## Last 7 days from the LIVE binding in 30-minute bins (Week history charts):
+## averages, except rain and ET (sum per bin) and gusts (bin maximum).
+#set $J = $jhwx
+#set $L = $J.live_binding
+#set $stop = $J.now
+{
+  "generated": $J.num($J.now),
+  "units": $J.units($unit),
+  "binding": $J.str($L),
+  "start": $J.num($stop - 604800),
+  "stop": $J.num($stop),
+  "series": $J.binned($L, ['outTemp', 'dewpoint', 'outHumidity', 'barometer', 'windSpeed', 'windGust', 'rain', 'radiation', 'maxSolarRad', 'UV', 'ET', 'inTemp'] + $J.power_fields, $stop - 604800, $stop, 1800)
+}

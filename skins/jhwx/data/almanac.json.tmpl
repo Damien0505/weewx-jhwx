@@ -1,0 +1,10 @@
+#errorCatcher Echo
+## Almanac grid: Today / Month / Year / Station record for each reading.
+## Today comes from the live binding, the rest from the history binding.
+## Readings with a record cutoff only count from that time.
+#set $J = $jhwx
+{
+  "generated": $J.num($J.now),
+  "units": $J.units($unit),
+  "almanac": $J.almanac($J.now)
+}

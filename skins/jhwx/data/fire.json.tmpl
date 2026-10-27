@@ -1,0 +1,9 @@
+#errorCatcher Echo
+## Fire-danger inputs from the station's rain and temperature history:
+## Keetch-Byram drought index (mm) and McArthur drought factor, per day.
+#set $J = $jhwx
+{
+  "generated": $J.num($J.now),
+  "units": $J.units($unit),
+  "fire": $J.fire()
+}

@@ -1,0 +1,12 @@
+#errorCatcher Echo
+## This month, one value per day (daily summaries, history binding).
+## Readings with a record cutoff are null before it (see config.json).
+#set $J = $jhwx
+{
+  "generated": $J.num($J.now),
+  "units": $J.units($unit),
+  "binding": $J.str($J.history_binding),
+  "start": $J.num($live.month.start),
+  "stop": $J.num($live.month.end),
+  "daily": $J.daily($J.history_binding, $live.month.start, $live.month.end)
+}

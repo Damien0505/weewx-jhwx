@@ -1,0 +1,11 @@
+#errorCatcher Echo
+## NOAA reports available, newest first. Files are NOAA/NOAA-YYYY-MM.txt and
+## NOAA/NOAA-YYYY.txt relative to the page.
+#set $J = $jhwx
+#set $months = [$x for $x in $SummaryByMonth]
+#set $years = [$x for $x in $SummaryByYear]
+{
+  "generated": $J.num($J.now),
+  "months": [#echo ', '.join(['"%s"' % $x for $x in reversed($months)])#],
+  "years": [#echo ', '.join(['"%s"' % $x for $x in reversed($years)])#]
+}

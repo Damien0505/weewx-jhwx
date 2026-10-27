@@ -1,0 +1,40 @@
+#errorCatcher Echo
+## Static facts about the station and this install, for the front end.
+#set $J = $jhwx
+{
+  "generated": $J.num($J.now),
+  "skin_version": $J.str($J.version),
+  "units": $J.units($unit),
+  "station": {
+    "location": $J.str($station.location),
+    "latitude": $J.num($station.stn_info.latitude_f),
+    "longitude": $J.num($station.stn_info.longitude_f),
+    "altitude_m": $J.num($station.altitude, 1),
+    "hardware": $J.str($station.hardware),
+    "hardware_short": $J.str($Extras.get('station_short') or $station.hardware),
+    "subtitle": $J.str($Extras.get('subtitle', '')),
+    "archive_interval_s": $J.num($latest($J.live_binding).interval.raw * 60 if $latest($J.live_binding).interval.raw is not None else None),
+    "rain_year_start": $J.num($station.rain_year_start),
+    "week_start": $J.num($station.week_start)
+  },
+  "weewx_version": $J.str($station.version),
+  "sensors": {
+    "outdoor": $J.str($Extras.sensors.get('outdoor', 'Outdoor')),
+    "console": $J.str($Extras.sensors.get('console', 'Console')),
+    "rain": $J.str($Extras.sensors.get('rain', 'Rain gauge'))
+  },
+  "mqtt": {
+    "url": $J.str($J.mqtt_url),
+    "topic": $J.str($J.mqtt_topic),
+    "units": "US"
+  },
+  "options": $J.client_options(),
+  "history_start": $J.num($J.history_start()),
+  "cutover": $J.num($J.cutover),
+  "record_cutoff": {
+#set $keys = sorted($J.record_cutoff.keys())
+#for $k in $keys
+    $J.str($k): $J.num($J.record_cutoff[$k])#if $k != $keys[-1] then ',' else ''#
+#end for
+  }
+}

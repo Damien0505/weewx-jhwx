@@ -1,0 +1,37 @@
+#errorCatcher Echo
+## Sun and moon at generation time (WeeWX almanac; pyephem backend).
+## The browser interpolates the sun position between report cycles.
+#set $J = $jhwx
+#set $a = $almanac($almanac_time=$J.now)
+#set $ay = $almanac($almanac_time=$J.now - 86400)
+{
+  "generated": $J.num($J.now),
+  "time": $J.num($a.time_ts),
+  "has_extras": #if $a.hasExtras then 'true' else 'false'#,
+#if $a.hasExtras
+  "sun": {
+    "rise": $J.num($a.sun.rise),
+    "set": $J.num($a.sun.set),
+    "transit": $J.num($a.sun.transit),
+    "altitude": $J.num($a.sun.altitude),
+    "azimuth": $J.num($a.sun.azimuth),
+    "civil_dawn": $J.num($a(horizon=-6).sun(use_center=1).rise),
+    "civil_dusk": $J.num($a(horizon=-6).sun(use_center=1).set),
+    "yesterday_rise": $J.num($ay.sun.rise),
+    "yesterday_set": $J.num($ay.sun.set)
+  },
+  "moon": {
+    "phase": $J.str($a.moon_phase),
+    "fullness": $J.num($a.moon_fullness),
+    "rise": $J.num($a.moon.rise),
+    "set": $J.num($a.moon.set),
+    "next_full": $J.num($a.next_full_moon),
+    "next_new": $J.num($a.next_new_moon),
+    "next_first_quarter": $J.num($a.next_first_quarter_moon),
+    "next_last_quarter": $J.num($a.next_last_quarter_moon)
+  }
+#else
+  "sun": {"rise": $J.num($a.sunrise), "set": $J.num($a.sunset)},
+  "moon": {"phase": $J.str($a.moon_phase), "fullness": $J.num($a.moon_fullness)}
+#end if
+}

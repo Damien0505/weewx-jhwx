@@ -1,0 +1,15 @@
+#errorCatcher Echo
+## Last 24 hours of archive records from the LIVE binding, for trend seeds,
+## sparklines and the Day history charts.  One entry per stored record;
+## missing values are null (charts break lines there, never interpolate).
+#set $J = $jhwx
+#set $L = $J.live_binding
+#set $stop = $J.now
+{
+  "generated": $J.num($J.now),
+  "units": $J.units($unit),
+  "binding": $J.str($L),
+  "start": $J.num($stop - 86400),
+  "stop": $J.num($stop),
+  "series": $J.series($L, ['outTemp', 'dewpoint', 'appTemp', 'outHumidity', 'barometer', 'windSpeed', 'windGust', 'windDir', 'rain', 'rainRate', 'radiation', 'maxSolarRad', 'UV', 'ET', 'inTemp', 'inHumidity'] + $J.power_fields, $stop - 86400, $stop)
+}
