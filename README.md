@@ -27,7 +27,9 @@ A WeeWX 5 skin plus a static, vanilla-JS dashboard:
   hour, coloured by age, with a link to the live LightningMaps.org (Blitzortung) map.
 - **Voltages** (optional): supercap and backup-battery tiles and gauges for whichever archive
   fields hold them (e.g. an Ecowitt WS90 mapped to `supplyVoltage` / `batteryStatus1`).
-- **Tiles or gauges**; **light / dark / auto** theme; works from 390 px phones to desktop.
+- **Tiles or gauges**: every tile has a gauge, plus wind direction and rain rate; red and green
+  markers show today's high and low, and the wind gauge has a blue gust needle.
+  **Light / dark / auto** theme; works from 390 px phones to desktop.
 
 ## How it works
 

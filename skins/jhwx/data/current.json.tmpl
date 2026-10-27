@@ -20,7 +20,7 @@
     "_end": null
   },
   "today": {
-#for $f in ['outTemp', 'dewpoint', 'appTemp', 'outHumidity', 'barometer', 'inTemp', 'inHumidity', 'radiation', 'UV', 'windSpeed'] + $J.power_fields
+#for $f in ['outTemp', 'dewpoint', 'appTemp', 'outHumidity', 'barometer', 'inTemp', 'inHumidity', 'radiation', 'UV', 'windSpeed', 'rainRate'] + $J.power_fields
 #set $s = $getattr($d, $f)
     $J.str($f): {"max": $J.num($s.max), "maxtime": $J.num($s.maxtime), "min": $J.num($s.min), "mintime": $J.num($s.mintime), "avg": $J.num($s.avg)},
 #end for

@@ -8,6 +8,9 @@ import { etOf, fireNow, firePeakToday } from './tiles.js';
 import { FIRE_LEVELS, fireBand } from './fire.js';
 
 const svgNS = 'http://www.w3.org/2000/svg';
+const MIN_COLOUR = '#1E9E4A';     // today's low marker (the high is red)
+const GUST_COLOUR = '#2F6FD8';    // wind gauge's gust needle
+const MARK_EDGE = '#1F262C';      // outline so markers show on any coloured band
 
 // Scale per display unit: [min, max, majors, minors, labelEvery, labelDp].
 // Metric scales are the DESIGN-SPEC "Gauges mode" ones.
@@ -16,13 +19,14 @@ const SCALES = {
   wind: { kmh: [0, 80, 8, 5, 1], ms: [0, 24, 8, 3, 1], mph: [0, 50, 10, 5, 1], kn: [0, 45, 9, 5, 1] },
   pressure: { hPa: [990, 1040, 10, 5, 2], kPa: [99, 104, 10, 5, 2], inHg: [29.2, 30.8, 8, 4, 2, 1], mmHg: [740, 780, 8, 5, 2] },
   rain: { mm: [0, 25, 5, 5, 1], in: [0, 1, 5, 4, 1, 1] },
+  rainRate: { mm: [0, 50, 10, 5, 2], in: [0, 2, 8, 5, 2, 1] },
   // a day's evapotranspiration (rain units) and indoor temperature
   et: { mm: [0, 10, 10, 2, 2], in: [0, 0.4, 8, 5, 2, 2] },
   indoor: { C: [0, 40, 8, 5, 1], F: [30, 110, 8, 5, 1] },
 };
 
-/** Gauge definitions for the current display units.  value/maxv return
- *  metric values; `group` gauges are converted for display (on the `scale`
+/** Gauge definitions for the current display units.  value/maxv/minv (today's
+ *  high and low markers) and gust (a second needle) return metric values; `group` gauges are converted for display (on the `scale`
  *  scale if set, else the group's own). */
 export function gaugeDefs(cfg) {
   const opt = (cfg && cfg.options) || {};
@@ -32,15 +36,17 @@ export function gaugeDefs(cfg) {
   const defs = [
     { id: 'g-temp', ref: 'temp', field: 'outTemp', name: 'Temp', group: 'temp',
       sections: [[-50, 0, '#4F8FE8'], [0, 30, '#3FA36B'], [30, 60, '#D9382A']],
-      value: (R) => R.get('outTemp').v, maxv: (R) => R.today('outTemp').max,
+      value: (R) => R.get('outTemp').v, maxv: (R) => R.today('outTemp').max, minv: (R) => R.today('outTemp').min,
       lcd: (R) => fmtUL('temp', R.get('outTemp').v, 1) },
     { id: 'g-hum', ref: 'hum', field: 'outHumidity', title: 'Humidity %', min: 0, max: 100, majors: 10, minors: 2, labelEvery: 2,
       sections: [[0, 30, '#E0892E'], [30, 70, '#3FA36B'], [70, 100, '#4F8FE8']],
       value: (R) => R.get('outHumidity').v, maxv: (R) => R.today('outHumidity').max,
+      minv: (R) => R.today('outHumidity').min,
       lcd: (R) => `${fmt(R.get('outHumidity').v, 0)} %` },
     { id: 'g-wind', ref: 'wind', field: 'windSpeed', name: 'Wind', group: 'wind',
       sections: [[0, 30, '#3FA36B'], [30, 50, '#E0B22E'], [50, 300, '#D9382A']],
       value: (R) => R.get('windSpeed').v, maxv: (R) => R.today('windGust').max,
+      gust: (R) => R.get('windGust').v,
       lcd: (R) => `${fmtU('wind', R.get('windSpeed').v, 1)} / ${fmtU('wind', R.get('windGust').v, 1)}` },
     { id: 'g-dir', ref: 'wind', field: 'windDir', title: 'Direction', min: 0, max: 360, majors: 8, minors: 3, compass: true,
       names: ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'],
@@ -53,12 +59,17 @@ export function gaugeDefs(cfg) {
     { id: 'g-baro', ref: 'baro', field: 'barometer', name: 'Pressure', group: 'pressure',
       sections: [[900, 1005, '#4F8FE8'], [1005, 1025, '#3FA36B'], [1025, 1100, '#E0B22E']],
       value: (R) => R.get('barometer').v, maxv: (R) => R.today('barometer').max,
+      minv: (R) => R.today('barometer').min,
       lcd: (R) => fmtU('pressure', R.get('barometer').v, 1) },
     { id: 'g-rain', ref: 'rain', field: 'dayRain', name: 'Rain', group: 'rain',
       sections: [[0, 10, '#7FB5F0'], [10, 20, '#4F8FE8'], [20, 1000, '#2F5FB8']],
       value: (R) => { const d = R.get('dayRain'); return d.src === 'live' ? d.v : R.rain('day'); },
       maxv: () => null,
       lcd: (R, def) => fmtUL('rain', def.value(R), 1) },
+    { id: 'g-rate', ref: 'rain', field: 'rainRate', name: 'Rain rate', group: 'rainRate',
+      sections: [[0, 2.5, '#7FB5F0'], [2.5, 10, '#4F8FE8'], [10, 1000, '#2F5FB8']],
+      value: (R) => R.get('rainRate').v, maxv: (R) => R.today('rainRate').max,
+      lcd: (R) => fmtUL('rainRate', R.get('rainRate').v, 1) },
     { id: 'g-solar', ref: 'solar', field: 'radiation', title: 'Solar W/m²', min: 0, max: 1200, majors: 6, minors: 4,
       sections: [[0, 400, '#E9C46A'], [400, 800, '#F0A23A'], [800, 1200, '#E06C2E']],
       value: (R) => R.get('radiation').v, maxv: (R) => R.today('radiation').max,
@@ -93,7 +104,7 @@ export function gaugeDefs(cfg) {
     defs.push({ id: 'g-cap', ref: 'cap', field: cap.field, title: `${cap.label} V`, min: lo, max: hi,
       majors: Math.round(hi - lo), minors: 5, optional: true,
       sections: [[lo, lo + (hi - lo) / 6, '#E0892E'], [lo + (hi - lo) / 6, hi, '#3FA36B']],
-      value: (R) => R.get(cap.field).v, maxv: (R) => R.today(cap.field).max,
+      value: (R) => R.get(cap.field).v, maxv: (R) => R.today(cap.field).max, minv: (R) => R.today(cap.field).min,
       lcd: (R) => `${fmt(R.get(cap.field).v, 2)} V` });
   }
   if (batt) {
@@ -104,12 +115,12 @@ export function gaugeDefs(cfg) {
     defs.push({ id: 'g-batt', ref: 'batt', field: batt.field, title: `${batt.label} V`, min: lo, max: hi,
       majors: 8, minors: 2, labelEvery: 2, labelDp: 1, optional: true,
       sections: [[lo, low, '#D9382A'], [low, fair, '#E0B22E'], [fair, hi, '#3FA36B']],
-      value: (R) => R.get(batt.field).v, maxv: (R) => R.today(batt.field).max,
+      value: (R) => R.get(batt.field).v, maxv: (R) => R.today(batt.field).max, minv: (R) => R.today(batt.field).min,
       lcd: (R) => `${fmt(R.get(batt.field).v, 2)} V` });
   }
   defs.push({ id: 'g-indoor', ref: 'indoor', field: 'inTemp', name: 'Indoor', group: 'temp', scale: 'indoor',
     sections: [[-50, 18, '#4F8FE8'], [18, 26, '#3FA36B'], [26, 60, '#D9382A']],
-    value: (R) => R.get('inTemp').v, maxv: (R) => R.today('inTemp').max,
+    value: (R) => R.get('inTemp').v, maxv: (R) => R.today('inTemp').max, minv: (R) => R.today('inTemp').min,
     lcd: (R) => fmtUL('temp', R.get('inTemp').v, 1) });
 
   for (const d of defs) {
@@ -180,7 +191,9 @@ function buildGauge(def) {
     ${g.arcs.map((a) => `<path d="${a.d}" style="fill:none;stroke:${a.c}" stroke-width="5"/>`).join('')}
     <path d="${g.major}" style="fill:none;stroke:var(--gaugeTick)" stroke-width="2"/>
     <path d="${g.minor}" style="fill:none;stroke:var(--gaugeTick);opacity:.55" stroke-width="1"/>
-    <path class="g-max" d="M100 14 L95.5 6 L104.5 6 Z" style="fill:${def.compass ? 'transparent' : '#D9382A'}"/>
+    <path class="g-max" d="M100 14 L95.5 6 L104.5 6 Z" style="fill:${def.compass ? 'transparent' : '#D9382A'};stroke:${def.compass ? 'none' : MARK_EDGE}" stroke-width="0.9" stroke-linejoin="round"/>
+    ${def.minv ? `<path class="g-min" d="M100 14 L95.5 6 L104.5 6 Z" style="fill:${MIN_COLOUR};stroke:${MARK_EDGE}" stroke-width="0.9" stroke-linejoin="round"/>` : ''}
+    ${def.gust ? `<path class="g-gust" d="M98.4 104 L100 28 L101.6 104 Z" style="fill:${GUST_COLOUR}"/>` : ''}
     <path class="g-needle" d="M97.4 104 L100 20 L102.6 104 Z" style="fill:#D9382A"/>
     <circle cx="100" cy="100" r="8.5" style="fill:#3A444D"/>
     <circle cx="100" cy="100" r="3.5" style="fill:#C9CED3"/>`;
@@ -203,7 +216,8 @@ function buildGauge(def) {
   foot.className = 'g-foot';
   foot.innerHTML = '<span class="trend" data-dir="steady"></span>';
   b.append(wrap, foot);
-  return { def, b, g, needle: s.querySelector('.g-needle'), max: s.querySelector('.g-max'), lcd, foot };
+  return { def, b, g, needle: s.querySelector('.g-needle'), max: s.querySelector('.g-max'),
+    min: s.querySelector('.g-min'), gust: s.querySelector('.g-gust'), lcd, foot };
 }
 
 export function mountGauges(container, defs, onOpen) {
@@ -226,6 +240,16 @@ export function mountGauges(container, defs, onOpen) {
       const mx = toUnit(def.maxv(R));
       v.max.style.display = Number.isFinite(mx) ? '' : 'none';
       if (Number.isFinite(mx)) v.max.setAttribute('transform', `rotate(${v.g.ang(mx).toFixed(1)} 100 100)`);
+      if (v.min) {
+        const mn = toUnit(def.minv(R));
+        v.min.style.display = Number.isFinite(mn) ? '' : 'none';
+        if (Number.isFinite(mn)) v.min.setAttribute('transform', `rotate(${v.g.ang(mn).toFixed(1)} 100 100)`);
+      }
+      if (v.gust) {
+        const gu = toUnit(def.gust(R));
+        v.gust.style.display = Number.isFinite(gu) ? '' : 'none';
+        if (Number.isFinite(gu)) v.gust.setAttribute('transform', `rotate(${v.g.ang(gu).toFixed(1)} 100 100)`);
+      }
       const text = def.lcd(R, def);
       v.lcd.textContent = text;
       v.b.dataset.state = R.state(def.field === 'windDir' ? 'windSpeed' : def.field);
