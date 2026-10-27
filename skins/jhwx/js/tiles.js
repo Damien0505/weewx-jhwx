@@ -73,7 +73,7 @@ function capStatus(R, field) {
 }
 
 /** ET totals from current.json "et" (day, yesterday, last7, rain7). */
-const etOf = (R, k) => {
+export const etOf = (R, k) => {
   const e = R.current && R.current.et;
   return e && Number.isFinite(e[k]) ? e[k] : null;
 };
@@ -92,7 +92,7 @@ export function fireNow(R) {
 }
 
 /** Highest FFDI so far today from the 10-minute history in the trend buffer. */
-function firePeakToday(R) {
+export function firePeakToday(R) {
   const df = droughtFactor(R);
   if (df === null) return null;
   const mid = new Date();

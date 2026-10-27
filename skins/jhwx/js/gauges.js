@@ -1,7 +1,11 @@
 // Gauges view: SteelSeries-style radial gauges drawn as SVG (geometry from
-// the approved mockup's gauge()).  Same readings and pop-ups as the tiles.
+// the approved mockup's gauge()).  Same readings and pop-ups as the tiles:
+// every tile has a gauge with the same `ref` (wind has two: speed and
+// direction), so a new tile needs a gauge here too (tools/check_gauges.mjs).
 
 import { fmt, compassPoint, uvCategory, conv, fmtU, fmtUL, unitLabel, unitPref } from './units.js';
+import { etOf, fireNow, firePeakToday } from './tiles.js';
+import { FIRE_LEVELS, fireBand } from './fire.js';
 
 const svgNS = 'http://www.w3.org/2000/svg';
 
@@ -12,11 +16,16 @@ const SCALES = {
   wind: { kmh: [0, 80, 8, 5, 1], ms: [0, 24, 8, 3, 1], mph: [0, 50, 10, 5, 1], kn: [0, 45, 9, 5, 1] },
   pressure: { hPa: [990, 1040, 10, 5, 2], kPa: [99, 104, 10, 5, 2], inHg: [29.2, 30.8, 8, 4, 2, 1], mmHg: [740, 780, 8, 5, 2] },
   rain: { mm: [0, 25, 5, 5, 1], in: [0, 1, 5, 4, 1, 1] },
+  // a day's evapotranspiration (rain units) and indoor temperature
+  et: { mm: [0, 10, 10, 2, 2], in: [0, 0.4, 8, 5, 2, 2] },
+  indoor: { C: [0, 40, 8, 5, 1], F: [30, 110, 8, 5, 1] },
 };
 
 /** Gauge definitions for the current display units.  value/maxv return
- *  metric values; `group` gauges are converted for display. */
+ *  metric values; `group` gauges are converted for display (on the `scale`
+ *  scale if set, else the group's own). */
 export function gaugeDefs(cfg) {
+  const opt = (cfg && cfg.options) || {};
   const power = (cfg && cfg.options && cfg.options.power) || {};
   const cap = power.supercap;
   const batt = power.battery;
@@ -58,7 +67,24 @@ export function gaugeDefs(cfg) {
       sections: [[0, 3, '#3FA36B'], [3, 8, '#E0B22E'], [8, 12, '#D9382A']],
       value: (R) => R.get('UV').v, maxv: (R) => R.today('UV').max,
       lcd: (R) => `${fmt(R.get('UV').v, 1)} ${uvCategory(R.get('UV').v)}`.trim() },
+    { id: 'g-et', ref: 'et', field: 'ET', name: 'ET', group: 'rain', scale: 'et',
+      sections: [[0, 2, '#3FA36B'], [2, 5, '#E0B22E'], [5, 100, '#E0892E']],
+      value: (R) => etOf(R, 'day'), maxv: () => null,
+      lcd: (R) => fmtUL('rain', etOf(R, 'day'), 1) },
   ];
+  if (opt.fire && opt.fire.enabled) {
+    // FFDI 0-100 in the AFDRS-style bands' colours (Catastrophic, 100+, is the stop)
+    const edges = FIRE_LEVELS.map((l) => l.min).filter((m) => m > 0 && m < 100).sort((x, y) => x - y);
+    defs.push({ id: 'g-fire', ref: 'fire', field: 'outTemp', title: 'Fire danger', min: 0, max: 100,
+      majors: 10, minors: 2, labelEvery: 2,
+      sections: edges.map((lo, i) => [lo, edges[i + 1] || 100, fireBand(lo).color]),
+      value: (R) => fireNow(R), maxv: (R) => firePeakToday(R),
+      lcd: (R) => {
+        const v = fireNow(R);
+        const b = fireBand(v);
+        return b ? `${fmt(v, 0)} ${b.name}` : '—';
+      } });
+  }
   // voltage gauges from [[power]]: supercap 0..max, battery min..max with the
   // Low / Fair / Good thresholds as coloured sections
   if (cap) {
@@ -81,10 +107,14 @@ export function gaugeDefs(cfg) {
       value: (R) => R.get(batt.field).v, maxv: (R) => R.today(batt.field).max,
       lcd: (R) => `${fmt(R.get(batt.field).v, 2)} V` });
   }
+  defs.push({ id: 'g-indoor', ref: 'indoor', field: 'inTemp', name: 'Indoor', group: 'temp', scale: 'indoor',
+    sections: [[-50, 18, '#4F8FE8'], [18, 26, '#3FA36B'], [26, 60, '#D9382A']],
+    value: (R) => R.get('inTemp').v, maxv: (R) => R.today('inTemp').max,
+    lcd: (R) => fmtUL('temp', R.get('inTemp').v, 1) });
 
   for (const d of defs) {
     if (!d.group) continue;
-    const [min, max, majors, minors, labelEvery, labelDp] = SCALES[d.group][unitPref(d.group)];
+    const [min, max, majors, minors, labelEvery, labelDp] = SCALES[d.scale || d.group][unitPref(d.group)];
     Object.assign(d, { min, max, majors, minors, labelEvery, labelDp, title: `${d.name} ${unitLabel(d.group)}` });
     d.sections = d.sections.map(([a, b, c]) => [conv(d.group, a), conv(d.group, b), c]);
   }

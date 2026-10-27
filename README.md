@@ -242,6 +242,10 @@ Then it runs `weectl report run jhwx` into `/tmp/jhwx-out` and checks every JSON
 parses and is tagged metric. **It doesn't change the live `weewx.conf` or restart
 anything.** Test-only overrides (MQTT path, labels, history binding) are in `tools/mkconf.py`.
 
+Every tile has a matching gauge (Wind has two: speed and direction). A new tile needs a gauge in
+`js/gauges.js` with the same `ref`; `node tools/check_gauges.mjs` (also run by `dev_run.sh`) fails if one
+is missing.
+
 `tools/snapshot_prod.py` makes a read-only SQLite snapshot of the production archive. It
 uses only SELECTs and builds the daily summaries with WeeWX's own backfill. That way the
 test host, which only has a little live history of its own, can generate realistic

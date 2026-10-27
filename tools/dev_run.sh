@@ -18,6 +18,8 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 
 # install.py must list every file (weectl uninstalls from that list)
 python "$REPO/tools/gen_filelist.py" --check
+# every tile needs a matching gauge
+node "$REPO/tools/check_gauges.mjs"
 
 tar --owner=0 --group=0 -C "$REPO" -czf - install.py bin skins tools/mkconf.py |
   ssh "$HOST" 'set -e; D=/home/weather/jhwx-dev; rm -rf $D; mkdir -p $D;
