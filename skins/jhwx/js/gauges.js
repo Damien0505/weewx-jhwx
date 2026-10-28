@@ -96,14 +96,16 @@ export function gaugeDefs(cfg) {
         return b ? `${fmt(v, 0)} ${b.name}` : '—';
       } });
   }
-  // voltage gauges from [[power]]: supercap 0..max, battery min..max with the
-  // Low / Fair / Good thresholds as coloured sections
+  // voltage gauges from [[power]]: supercap 0..max red below the point where
+  // the sensor falls back to its batteries (WS90: ~2.5 V), battery min..max
+  // with the Low / Fair / Good thresholds as coloured sections
   if (cap) {
     const lo = cap.min;
     const hi = cap.max;
+    const low = Number.isFinite(cap.low) ? cap.low : 2.5;
     defs.push({ id: 'g-cap', ref: 'cap', field: cap.field, title: `${cap.label} V`, min: lo, max: hi,
       majors: Math.round(hi - lo), minors: 5, optional: true,
-      sections: [[lo, lo + (hi - lo) / 6, '#E0892E'], [lo + (hi - lo) / 6, hi, '#3FA36B']],
+      sections: [[lo, low, '#D9382A'], [low, hi, '#3FA36B']],
       value: (R) => R.get(cap.field).v, maxv: (R) => R.today(cap.field).max, minv: (R) => R.today(cap.field).min,
       lcd: (R) => `${fmt(R.get(cap.field).v, 2)} V` });
   }

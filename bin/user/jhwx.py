@@ -95,6 +95,8 @@ class JhwxHelper(object):
                     'min': _float(power.get(rng[0]), 0.0 if key == 'supercap' else 2.0),
                     'max': _float(power.get(rng[1]), 6.0 if key == 'supercap' else 3.6),
                 }
+        if 'supercap' in self.power:
+            self.power['supercap']['low'] = _float(power.get('supercap_low'), 2.5)
         if 'battery' in self.power:
             self.power['battery']['low'] = _float(power.get('battery_low'), None)
             self.power['battery']['fair'] = _float(power.get('battery_fair'), None)

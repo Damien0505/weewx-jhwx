@@ -181,6 +181,7 @@ skin's `[Extras]`; a restart picks them up.
 | `[[record_cutoff]] <obs> = YYYY-MM-DD HH:MM` | none | records, charts and totals for that reading only count from then (faulty earlier sensor) |
 | `[[power]] supercap`, `battery` | blank (hidden) | archive fields holding the voltages |
 | `[[power]] supercap_label`, `supercap_max` | Supercap, 6 | tile/gauge name, gauge top (V) |
+| `[[power]] supercap_low` | 2.5 | gauge red below this (where a WS90 falls back to its batteries) |
 | `[[power]] battery_label`, `battery_min`, `battery_max` | Backup battery, 2.0, 3.6 | tile/gauge name, gauge range (V) |
 | `[[power]] battery_low`, `battery_fair` | 2.4, 2.8 | below these the battery reads Low / Fair |
 | `[[fire_danger]] enable` | `false` | indicative fire danger tile, Now-card badge and history (Australian method) |
