@@ -1,14 +1,15 @@
 // 7-day forecast from Open-Meteo (CC BY 4.0) for the station's lat/lon.
 // Also supplies current cloud cover (night-time conditions icon), today's
-// outlook line and tomorrow's UV maximum.
+// outlook line, tomorrow's UV maximum and the hourly forecast (hourly.js).
 
-import { fmtAge, compassPoint, fmtU, fmtUL, fmtDeg, conv } from './units.js';
+import { fmtAge, compassPoint, fmtUL, fmtDeg, unitPref } from './units.js';
 import { icon } from './icons.js';
 
 const URL_BASE = 'https://api.open-meteo.com/v1/forecast';
 const REFRESH_MS = 30 * 60 * 1000;
 const RETRY_MS = 5 * 60 * 1000;
 const TIMEOUT_MS = 15000;
+const TODAY_MIN_H = 12;       // hourly 'Today' shows at least this many hours
 
 // WMO weather interpretation codes -> [text, icon]
 const WMO = {
@@ -41,6 +42,8 @@ export class Forecast extends EventTarget {
       longitude: this.lon,
       daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,'
         + 'precipitation_probability_max,wind_speed_10m_max,wind_direction_10m_dominant,uv_index_max',
+      hourly: 'temperature_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,'
+        + 'wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,is_day',
       current: 'cloud_cover,weather_code',
       timezone: 'auto',
       forecast_days: '7',
@@ -92,6 +95,31 @@ export class Forecast extends EventTarget {
     };
   }
 
+  /** Hours of day `i` (station local time).  Today's start at the current hour
+   *  and run on into tomorrow if fewer than TODAY_MIN_H are left. */
+  hours(i) {
+    const d = this.data;
+    const day = this.day(i);
+    if (!day || !d.hourly || !Array.isArray(d.hourly.time)) return [];
+    const h = d.hourly;
+    // the current hour at the station, as Open-Meteo writes it ('YYYY-MM-DDTHH')
+    const nowHour = new Date(Date.now() + (d.utc_offset_seconds || 0) * 1000).toISOString().slice(0, 13);
+    const out = [];
+    h.time.forEach((t, k) => {
+      if (i === 0) {
+        if (t.slice(0, 13) < nowHour || (!t.startsWith(day.date) && out.length >= TODAY_MIN_H)) return;
+      } else if (!t.startsWith(day.date)) return;
+      out.push({
+        time: t, now: t.slice(0, 13) === nowHour,
+        temp: h.temperature_2m[k], feel: h.apparent_temperature[k],
+        pop: h.precipitation_probability[k], rain: h.precipitation[k], code: h.weather_code[k],
+        wind: h.wind_speed_10m[k], dir: h.wind_direction_10m[k], gust: h.wind_gusts_10m[k],
+        uv: h.uv_index[k], isDay: h.is_day[k] === 1,
+      });
+    });
+    return out;
+  }
+
   /** "Rest of today (Open-Meteo): rain, max 14°, 80% chance of rain." */
   outlook() {
     const t = this.day(0);
@@ -111,6 +139,8 @@ export class Forecast extends EventTarget {
 const dayFmt = new Intl.DateTimeFormat('en-AU', { weekday: 'short' });
 const dateFmt = new Intl.DateTimeFormat('en-AU', { day: 'numeric', month: 'short' });
 
+/** Day cards; each opens that day's hourly forecast (data-day).  Rebuilt only
+ *  when the data or display units change, so a click is never lost. */
 export function renderForecast(root, fc) {
   const grid = root.querySelector('.fc-grid');
   root.querySelector('.fc-age').textContent = `Open-Meteo · station lat/lon from weewx.conf · ${fc.ageText()}`;
@@ -118,6 +148,9 @@ export function renderForecast(root, fc) {
     if (!grid.childElementCount) grid.textContent = fc.error ? 'Forecast unavailable.' : 'Loading forecast…';
     return;
   }
+  const key = `${fc.fetchedAt}|${unitPref('temp')}|${unitPref('rain')}|${unitPref('wind')}|${new Date().toDateString()}`;
+  if (grid.dataset.key === key) return;
+  grid.dataset.key = key;
   const days = [];
   for (let i = 0; i < 7; i++) { const d = fc.day(i); if (d) days.push(d); }
   const lo = Math.min(...days.map((d) => d.min));
@@ -126,8 +159,10 @@ export function renderForecast(root, fc) {
   grid.replaceChildren(...days.map((d, i) => {
     const [text, ic] = wmo(d.code);
     const dt = new Date(`${d.date}T12:00:00`);
-    const el = document.createElement('div');
+    const el = document.createElement('button');
+    el.type = 'button';
     el.className = 'fc-day';
+    el.dataset.day = String(i);
     const rain = Number.isFinite(d.rain) && d.rain >= 0.1 ? fmtUL('rain', d.rain, d.rain < 10 ? 1 : 0) : '—';
     el.innerHTML = `
       <div class="fc-top"><span class="fc-name"></span><span class="fc-date"></span></div>
@@ -147,6 +182,7 @@ export function renderForecast(root, fc) {
     el.querySelector('.fc-pop span').textContent = Number.isFinite(d.pop) ? `${d.pop}%` : '—';
     el.querySelector('.fc-mm').textContent = rain;
     el.querySelector('.fc-wind').textContent = `Wind ${compassPoint(d.dir)} ${fmtUL('wind', d.wind, 0)}`;
+    el.setAttribute('aria-label', `${i === 0 ? 'Today' : dayFmt.format(dt)}: ${text}, ${fmtDeg(d.min, 0)} to ${fmtDeg(d.max, 0)}. Show hourly forecast`);
     return el;
   }));
 }

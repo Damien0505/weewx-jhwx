@@ -21,7 +21,8 @@ A WeeWX 5 skin plus a static, vanilla-JS dashboard:
   temperature, humidity and 10-minute wind, with a drought factor (KBDI + Griffiths) computed
   from the station's own rain and temperature history, shown in AFDRS-style bands. Not an
   official rating.
-- **7-day forecast** (Open-Meteo); **rain radar** (RainViewer) with nearest echo, movement and a
+- **7-day forecast** (Open-Meteo): click a day, or the hero's outlook line, for its **hourly
+  forecast** (temperature and feels-like, chance and amount of rain, wind, gusts, UV); **rain radar** (RainViewer) with nearest echo, movement and a
   rough arrival estimate; a **pressure chart** (isobars, highs and lows, 3 days ahead);
   **earthquakes** (EMSC); **lightning** (optional, Xweather): strikes within 100 km over the last
   hour, coloured by age, with a link to the live LightningMaps.org (Blitzortung) map.

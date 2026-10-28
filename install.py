@@ -78,6 +78,7 @@ FILES = [
         'skins/jhwx/js/gauges.js',
         'skins/jhwx/js/hero.js',
         'skins/jhwx/js/history.js',
+        'skins/jhwx/js/hourly.js',
         'skins/jhwx/js/icons.js',
         'skins/jhwx/js/layout.js',
         'skins/jhwx/js/live.js',

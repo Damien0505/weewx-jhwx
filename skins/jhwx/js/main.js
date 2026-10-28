@@ -9,6 +9,7 @@ import { HistoryDialog } from './history.js';
 import { renderHero } from './hero.js';
 import { renderSunMoon } from './sunmoon.js';
 import { Forecast, renderForecast } from './forecast.js';
+import { HourlyDialog } from './hourly.js';
 import { MapsPanel } from './maps.js';
 import { gaugeDefs, mountGauges } from './gauges.js';
 import {
@@ -363,6 +364,13 @@ async function main() {
   state.forecast = new Forecast(cfg.station.latitude, cfg.station.longitude);
   state.forecast.addEventListener('update', renderAll);
   state.forecast.start();
+  // a forecast day, or the hero's outlook line, opens the hourly forecast
+  state.hourly = new HourlyDialog(state.forecast);
+  $('#forecast .fc-grid').addEventListener('click', (e) => {
+    const d = e.target.closest('.fc-day[data-day]');
+    if (d && !state.layout.editing) state.hourly.open(Number(d.dataset.day));
+  });
+  $('#hero .hero-outlook').addEventListener('click', () => { if (!state.layout.editing) state.hourly.open(0); });
   state.readings.forecast = state.forecast;
 
   state.maps = new MapsPanel($('#maps'), cfg, state.readings);

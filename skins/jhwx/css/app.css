@@ -543,3 +543,54 @@ svg.chart { width: 100%; height: 260px; display: block; overflow: visible; }
   .g-lcd { font-size: 12px; padding: 2px 6px; }
   .g-foot { flex-direction: column; align-items: flex-start; gap: 2px; }
 }
+
+/* ---------- hourly forecast (forecast day cards and hero outlook open it) ---------- */
+button.fc-day { font: inherit; color: inherit; text-align: left; cursor: pointer; }
+button.fc-day:hover { border-color: var(--accent); }
+.hero-outlook {
+  font: inherit; color: inherit; background: none; border: 0; padding: 0; text-align: left; cursor: pointer;
+  text-decoration: underline dotted; text-underline-offset: 3px;
+}
+.hero-outlook:hover { color: var(--accent); }
+.hero-outlook:empty { display: none; }
+.hr-dlg .dlg-ctl { flex-wrap: wrap; }
+.hr-sum { margin-top: 6px; font-size: 14px; }
+.hr-days button[role="tab"] { padding: 0 11px; }
+.hr-body { padding: 16px 24px 20px; display: flex; flex-direction: column; gap: 10px; }
+.hr-wrap { display: flex; gap: 8px; }
+.hr-labels { flex: none; width: 54px; display: flex; flex-direction: column; font-size: 12px; }
+.hr-labels > span { display: flex; align-items: center; }
+.hr-scroll { flex: 1; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: 6px; }
+.hr-inner { display: flex; flex-direction: column; }
+.hr-row { display: flex; }
+.hr-row > span { flex: none; width: 58px; display: flex; align-items: center; justify-content: center; gap: 3px; }
+.hr-time, .hr-l-time { height: 24px; }
+.hr-time > span { font-size: 13px; color: var(--muted); }
+.hr-time .hr-now { color: var(--accent); font-weight: 700; }
+.hr-icon, .hr-l-icon { height: 40px; }
+.hr-temp, .hr-l-temp { height: 104px; }
+.hr-temp { display: block; overflow: visible; }
+.hr-line { fill: none; stroke: var(--warm); stroke-width: 2.2; stroke-linejoin: round; }
+.hr-feel { fill: none; stroke: var(--muted); stroke-width: 1.4; stroke-dasharray: 4 4; }
+.hr-dots circle { fill: var(--warm); }
+.hr-dots text { fill: var(--text); font-size: 12px; font-weight: 600; text-anchor: middle; font-family: inherit; }
+.hr-key { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; }
+.hr-key span { display: inline-flex; align-items: center; gap: 6px; }
+.hr-time .hr-midnight { color: var(--text); font-weight: 700; }
+.hr-sw { display: inline-block; width: 16px; height: 0; border-top: 2px solid var(--warm); }
+.hr-sw-feel { border-top: 2px dashed var(--muted); }
+.hr-sw-bar { width: 10px; height: 12px; border: 0; border-radius: 2px 2px 0 0; background: #2F7BD8; opacity: .75; }
+.hr-pop, .hr-l-pop { height: 62px; }
+.hr-pop > span { flex-direction: column; justify-content: flex-end; gap: 1px; font-size: 12px; }
+.hr-bar { display: block; width: 18px; border-radius: 3px 3px 0 0; background: #2F7BD8; opacity: .75; }
+.hr-pop-t { color: var(--text); }
+.hr-mm { color: var(--muted); font-size: 11px; min-height: 14px; }
+.hr-wind, .hr-l-wind, .hr-gust, .hr-l-gust, .hr-uv, .hr-l-uv { height: 28px; font-size: 13px; }
+.hr-labels > span[hidden] { display: none; }
+.hr-l-pop { align-items: flex-end !important; padding-bottom: 16px; }
+@media (max-width: 600px) {
+  .hr-body { padding: 12px 16px 16px; }
+  .hr-days { flex: 1; }
+  .hr-days button[role="tab"] { flex: 1; padding: 0 4px; }
+  .hr-labels { width: 44px; font-size: 11px; }
+}
