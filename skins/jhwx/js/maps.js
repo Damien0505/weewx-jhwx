@@ -3,7 +3,7 @@
 // Leaflet map with a side panel.  Each external source reports its own age
 // and error state.
 
-import { fmt, fmtTime, fmtAge, compassPoint, fmtUL } from './units.js';
+import { fmt, fmtTime, fmtDate, fmtAge, compassPoint, fmtUL } from './units.js';
 
 // distances/speeds in the viewer's units, rounded for a map read-out
 const dist = (km, step = 1) => fmtUL('distance', Math.round(km / step) * step, 0);
@@ -19,7 +19,21 @@ const RADAR_MAX_ZOOM = 7;          // RainViewer free tier
 const RADAR_COLOUR = 2;            // "Universal Blue"
 const EMSC = 'https://www.seismicportal.eu/fdsnws/event/1/query';
 const QUAKE_REFRESH_MS = 10 * 60 * 1000;
-const QUAKE_DAYS = 30;
+// viewer-chosen look-back and ranges (remembered in this browser)
+const QUAKE_DAYS = [1, 7, 30, 90];
+const QUAKE_FAR_KM = [1000, 2000, 3000, 5000, 10000];   // M4+
+const QUAKE_NEAR_KM = [0, 100, 200, 300, 500, 1000];    // M2+ (0 = off)
+const QUAKE_DEFAULT = { days: 30, far: 5000, near: 300 };
+const QUAKE_STORE = 'jhwx.quakes';
+const QUAKE_LIMIT = 4000;          // per request; 90 days of M4+ within 10,000 km is ~3,000
+const QUAKE_LIST_MAX = 100;
+const KM_PER_DEG = 111.195;
+// QuakeML event types EMSC uses
+const QUAKE_TYPES = {
+  ke: 'Earthquake', se: 'Suspected earthquake', ki: 'Induced earthquake', si: 'Suspected induced earthquake',
+  kr: 'Rockburst', sr: 'Suspected rockburst', qb: 'Quarry blast', sqb: 'Suspected quarry blast',
+  ex: 'Explosion', sex: 'Suspected explosion', km: 'Mining-induced', sm: 'Suspected mining-induced',
+};
 const LIGHTNING_REFRESH_MS = 2 * 60 * 1000;   // re-read data/lightning.json (WeeWX checks every 10-30 min)
 const TIMEOUT_MS = 15000;
 
@@ -66,7 +80,8 @@ export class MapsPanel {
     this.lon = cfg.station.longitude;
     this.tab = 'radar';
     this.radar = { frames: [], layers: [], index: 0, playing: true, fetchedAt: null, error: null, stats: null, statsError: null };
-    this.quakes = { events: [], fetchedAt: null, error: null };
+    this.quakes = { events: [], fetchedAt: null, error: null, prefs: this.quakePrefs(), seq: 0, timer: null,
+      markers: new Map(), sel: null, hl: null, truncated: false };
     this.mslp = { data: null, step: null, error: null, loadedAt: 0, chart: null };
     this.ltg = { data: null, error: null };
   }
@@ -87,6 +102,7 @@ export class MapsPanel {
       radius: 6, color: '#ffffff', weight: 2, fillColor: '#D9382A', fillOpacity: 1,
     }).bindTooltip(this.cfg.station.location).addTo(map);
     this.overlay = L.layerGroup().addTo(map);
+    this.quakeRenderer = L.canvas({ padding: 0.5 });   // thousands of dots stay quick
     this.rings = L.layerGroup().addTo(map);
 
     let resizeTimer = null;
@@ -115,6 +131,9 @@ export class MapsPanel {
       this.mslp.step = Number(b.dataset.step);
       this.drawMslp();
     });
+    this.quakeControls();
+    document.addEventListener('jhwx-units', () => this.quakeControls());   // range labels follow the distance unit
+    map.on('moveend', () => { if (this.tab === 'quakes') this.renderQuakeList(); });
     this.loadRadar();
     this.loadQuakes();
     this.loadLightning();
@@ -148,9 +167,9 @@ export class MapsPanel {
       this.mslpView();
       this.loadMslp();
     } else if (tab === 'quakes') {
-      this.drawRings([500, 1000, 1500]);
+      this.quakeRings();
       this.drawQuakes();
-      this.map.setView([this.lat, this.lon], 3);
+      this.quakeView();
     } else {
       this.drawRings([25, 50, 100]);
       this.drawLightning();
@@ -159,11 +178,11 @@ export class MapsPanel {
     this.renderSide();
   }
 
-  drawRings(kms) {
+  drawRings(kms, label = (km) => dist(km)) {
     const col = getComputedStyle(document.documentElement).getPropertyValue('--muted').trim() || '#888';
     for (const km of kms) {
       L.circle([this.lat, this.lon], { radius: km * 1000, color: col, weight: 1, fill: false, dashArray: '4 6' })
-        .bindTooltip(dist(km), { permanent: false }).addTo(this.rings);
+        .bindTooltip(label(km), { permanent: false }).addTo(this.rings);
     }
   }
 
@@ -429,30 +448,103 @@ export class MapsPanel {
   }
 
   // ----------------------------------------------------------- quakes
+  quakePrefs() {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(QUAKE_STORE) || '{}') || {}; } catch (e) { /* ignore */ }
+    const pick = (v, list, d) => (list.includes(Number(v)) ? Number(v) : d);
+    return {
+      days: pick(saved.days, QUAKE_DAYS, QUAKE_DEFAULT.days),
+      far: pick(saved.far, QUAKE_FAR_KM, QUAKE_DEFAULT.far),
+      near: pick(saved.near, QUAKE_NEAR_KM, QUAKE_DEFAULT.near),
+    };
+  }
+
+  /** Fill the look-back and range pickers under the map (labels follow the
+   *  distance unit) and refetch when one changes. */
+  quakeControls() {
+    const ctl = this.root.querySelector('.quake-ctl');
+    if (!ctl) return;
+    const lists = {
+      days: QUAKE_DAYS.map((d) => [d, d === 1 ? '24 hours' : `${d} days`]),
+      far: QUAKE_FAR_KM.map((km) => [km, dist(km)]),
+      near: QUAKE_NEAR_KM.map((km) => [km, km ? dist(km) : 'off']),
+    };
+    for (const sel of ctl.querySelectorAll('select[data-q]')) {
+      const key = sel.dataset.q;
+      sel.replaceChildren(...lists[key].map(([v, text]) => new Option(text, String(v))));
+      sel.value = String(this.quakes.prefs[key]);
+    }
+    if (ctl.dataset.wired) return;
+    ctl.dataset.wired = '1';
+    ctl.addEventListener('change', (e) => {
+      const sel = e.target.closest('select[data-q]');
+      if (!sel) return;
+      const p = this.quakes.prefs;
+      p[sel.dataset.q] = Number(sel.value);
+      try { localStorage.setItem(QUAKE_STORE, JSON.stringify(p)); } catch (e2) { /* ignore */ }
+      this.quakes.sel = null;
+      if (this.tab === 'quakes') {
+        this.rings.clearLayers();
+        this.quakeRings();
+        if (sel.dataset.q === 'far') this.quakeView();
+      }
+      this.loadQuakes();
+    });
+  }
+
+  quakeRings() {
+    const p = this.quakes.prefs;
+    this.drawRings([p.far], (km) => `M4+ within ${dist(km)}`);
+    if (p.near) this.drawRings([p.near], (km) => `M2+ within ${dist(km)}`);
+  }
+
+  /** Frame the M4+ range around the station. */
+  quakeView() {
+    const km = this.quakes.prefs.far;
+    const dLat = km / KM_PER_DEG;
+    const dLon = Math.min(180, km / (KM_PER_DEG * Math.max(0.2, Math.cos(rad(this.lat)))));
+    this.map.fitBounds([[Math.max(-80, this.lat - dLat), this.lon - dLon], [Math.min(80, this.lat + dLat), this.lon + dLon]],
+      { animate: false });
+  }
+
   async loadQuakes() {
-    const start = new Date(Date.now() - QUAKE_DAYS * 86400000).toISOString().slice(0, 19);
-    const q = (minmag, maxradius) => `${EMSC}?${new URLSearchParams({
-      format: 'json', lat: this.lat, lon: this.lon, maxradius, minmag, starttime: start, limit: 300, orderby: 'time',
+    const Q = this.quakes;
+    clearTimeout(Q.timer);
+    const seq = ++Q.seq;
+    const p = Q.prefs;
+    const start = new Date(Date.now() - p.days * 86400000).toISOString().slice(0, 19);
+    const q = (minmag, km) => `${EMSC}?${new URLSearchParams({
+      format: 'json', lat: this.lat, lon: this.lon, maxradius: (km / KM_PER_DEG).toFixed(2), minmag,
+      starttime: start, limit: QUAKE_LIMIT, orderby: 'time',
     })}`;
     try {
-      // M4+ within ~5,000 km (45°) and M2+ within ~300 km (2.7°)
-      const [far, near] = await Promise.all([getJson(q(4, 45)), getJson(q(2, 2.7))]);
+      const [far, near] = await Promise.all([getJson(q(4, p.far)), p.near ? getJson(q(2, p.near)) : { features: [] }]);
+      if (seq !== Q.seq) return;           // the viewer changed the settings meanwhile
       const seen = new Map();
       for (const f of [...far.features, ...near.features]) {
-        const p = f.properties;
-        if (seen.has(p.unid)) continue;
-        const db = distBearing(this.lat, this.lon, p.lat, p.lon);
-        seen.set(p.unid, { ...p, t: Date.parse(p.time) / 1000, ...db });
+        const e = f.properties;
+        if (seen.has(e.unid)) continue;
+        const db = distBearing(this.lat, this.lon, e.lat, e.lon);
+        // draw on the world copy nearest the station (Tonga east of Australia, not far west)
+        const lonN = e.lon + 360 * Math.round((this.lon - e.lon) / 360);
+        seen.set(e.unid, { ...e, t: Date.parse(e.time) / 1000, lonN, ...db });
       }
-      this.quakes.events = [...seen.values()].sort((a, b) => b.t - a.t);
-      this.quakes.fetchedAt = Date.now();
-      this.quakes.error = null;
+      Q.events = [...seen.values()].sort((a, b) => b.t - a.t);
+      Q.truncated = far.features.length >= QUAKE_LIMIT || near.features.length >= QUAKE_LIMIT;
+      Q.fetchedAt = Date.now();
+      Q.error = null;
     } catch (e) {
-      this.quakes.error = `EMSC ${e.message}`;
+      if (seq !== Q.seq) return;
+      Q.error = `EMSC ${e.message}`;
     }
-    if (this.tab === 'quakes') { this.overlay.clearLayers(); this.drawQuakes(); }
+    if (this.tab === 'quakes') {
+      const keep = Q.sel;                  // a refresh keeps the open event open
+      this.overlay.clearLayers();
+      this.drawQuakes();
+      if (keep && Q.markers.has(keep)) { Q.sel = keep; this.pickQuake(keep, true); }
+    }
     this.renderSide();
-    setTimeout(() => this.loadQuakes(), QUAKE_REFRESH_MS);
+    Q.timer = setTimeout(() => this.loadQuakes(), QUAKE_REFRESH_MS);
   }
 
   quakeColour(t) {
@@ -463,12 +555,175 @@ export class MapsPanel {
   }
 
   drawQuakes() {
-    for (const e of this.quakes.events) {
+    const Q = this.quakes;
+    Q.markers = new Map();
+    // oldest first, so the newest are drawn on top
+    for (let i = Q.events.length - 1; i >= 0; i--) {
+      const e = Q.events[i];
       const c = this.quakeColour(e.t);
-      L.circleMarker([e.lat, e.lon], {
+      const m = L.circleMarker([e.lat, e.lonN], {
+        renderer: this.quakeRenderer,
         radius: Math.max(3, (e.mag - 1) * 3), color: c, weight: 1.5, fillColor: c, fillOpacity: 0.35,
-      }).bindTooltip(`M${fmt(e.mag, 1)} ${e.flynn_region} · ${fmtTime(e.t)}`).addTo(this.overlay);
+      }).bindTooltip(`M${fmt(e.mag, 1)} ${e.flynn_region} · ${fmtTime(e.t)}`)
+        .bindPopup(() => this.quakeDetail(e, true), { maxWidth: 280, minWidth: 220, className: 'quake-pop', autoPanPaddingTopLeft: [56, 12] })
+        .addTo(this.overlay);
+      m.on('popupopen', () => { Q.sel = e.unid; this.markQuake(); this.renderQuakeList(true); });
+      m.on('popupclose', () => { if (Q.sel === e.unid) { Q.sel = null; this.markQuake(); this.renderQuakeList(); } });
+      Q.markers.set(e.unid, m);
     }
+  }
+
+  /** Events inside the current map view (any world copy). */
+  quakesInView() {
+    const b = this.map.getBounds();
+    return this.quakes.events.filter((e) => [0, 360, -360].some((k) => b.contains([e.lat, e.lonN + k])));
+  }
+
+  /** Details for one event: the map popup (a heading and the key rows, small
+   *  enough for a phone-sized map) or in full under its list entry. */
+  quakeDetail(e, popup) {
+    const heading = popup;
+    const box = document.createElement('div');
+    box.className = 'quake-detail';
+    if (heading) {
+      const h = document.createElement('div');
+      h.className = 'qd-h';
+      const mag = document.createElement('span');
+      mag.className = 'mag';
+      mag.style.background = this.quakeColour(e.t);
+      mag.textContent = fmt(e.mag, 1);
+      const name = document.createElement('b');
+      name.textContent = e.flynn_region;
+      h.append(mag, name);
+      box.append(h);
+    }
+    const when = new Date(e.t * 1000);
+    const utc = when.toISOString().slice(11, 16);
+    const rows = [
+      ['Magnitude', `M${fmt(e.mag, 1)}${e.magtype ? ` (${e.magtype})` : ''}`],
+      ['Time', `${fmtDate(e.t)} ${fmtTime(e.t)} (${utc} UTC)`],
+      ['Age', fmtAge(Date.now() / 1000 - e.t)],
+      ['Depth', dist(e.depth)],
+      ['From the station', `${dist(e.dist)} ${compassPoint(e.bearing)} (${Math.round(e.bearing)}°)`],
+      ['Location', `${fmt(Math.abs(e.lat), 2)}°${e.lat < 0 ? 'S' : 'N'}, ${fmt(Math.abs(e.lon), 2)}°${e.lon < 0 ? 'W' : 'E'}`],
+      ['Type', QUAKE_TYPES[e.evtype] || e.evtype || '—'],
+      ['Reported by', e.auth || '—'],
+    ];
+    const up = Date.parse(e.lastupdate);
+    if (Number.isFinite(up)) rows.push(['Last revised', fmtAge(Date.now() / 1000 - up / 1000)]);
+    if (popup) {
+      const brief = ['Time', 'Depth', 'From the station'];
+      rows.splice(0, rows.length, ...rows.filter(([k]) => brief.includes(k)));
+      rows[0] = ['Time', `${fmtDate(e.t)} ${fmtTime(e.t)}`];
+    }
+    const dl = document.createElement('dl');
+    dl.className = 'side-facts';
+    for (const [k, v] of rows) {
+      const row = document.createElement('div');
+      const dt = document.createElement('dt');
+      const dd = document.createElement('dd');
+      dt.textContent = k;
+      dd.textContent = v;
+      row.append(dt, dd);
+      dl.append(row);
+    }
+    const a = document.createElement('a');
+    a.href = `https://www.seismicportal.eu/eventdetails.html?unid=${encodeURIComponent(e.unid)}`;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.textContent = 'Full details on EMSC ↗';
+    box.append(dl, a);
+    return box;
+  }
+
+  /** List the events in the map view, newest first; the picked one opens up. */
+  renderQuakeList(scroll) {
+    const list = this.quakeListEl;
+    if (this.tab !== 'quakes' || !list || !list.isConnected) return;
+    const Q = this.quakes;
+    const shown = this.quakesInView();
+    const inView = shown.length;
+    // the picked event stays listed even once the map moves off it
+    const picked = Q.sel && !shown.some((e) => e.unid === Q.sel) && Q.events.find((e) => e.unid === Q.sel);
+    if (picked) shown.unshift(picked);
+    const focused = document.activeElement && document.activeElement.closest
+      && document.activeElement.closest('.quake-list .q-item');
+    const refocus = focused && focused.dataset.unid;
+    list.replaceChildren();
+    for (const e of shown.slice(0, QUAKE_LIST_MAX)) {
+      const li = document.createElement('li');
+      const open = Q.sel === e.unid;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'q-item';
+      btn.dataset.unid = e.unid;
+      btn.setAttribute('aria-expanded', String(open));
+      const badge = document.createElement('span');
+      badge.className = 'mag';
+      badge.style.background = this.quakeColour(e.t);
+      badge.textContent = fmt(e.mag, 1);
+      const txt = document.createElement('div');
+      const name = document.createElement('b');
+      name.textContent = e.flynn_region;
+      const meta = document.createElement('div');
+      meta.className = 'muted small';
+      meta.textContent = `${dist(e.depth)} deep · ${dist(e.dist)} ${compassPoint(e.bearing)} · ${fmtAge(Date.now() / 1000 - e.t)}`;
+      txt.append(name, meta);
+      btn.append(badge, txt);
+      btn.addEventListener('click', () => this.pickQuake(e.unid));
+      li.append(btn);
+      if (open) {
+        li.className = 'open';
+        li.append(this.quakeDetail(e, false));
+      }
+      list.append(li);
+    }
+    if (refocus) {
+      const b = [...list.querySelectorAll('.q-item')].find((x) => x.dataset.unid === refocus);
+      if (b) b.focus({ preventScroll: true });
+    }
+    if (scroll) {
+      const li = list.querySelector('li.open');
+      // scroll the list only, not the page
+      if (li) list.scrollTop = li.offsetTop - list.offsetTop - 4;
+    }
+    if (this.quakeCount) {
+      const n = inView;
+      const all = Q.events.length;
+      let t = !Q.fetchedAt ? '' : !all ? 'No earthquakes in range.'
+        : !n ? `None in the map view (${all} in range): zoom out or pan.`
+          : `${n} in the map view${n < all ? ` of ${all} in range` : ''}${n > QUAKE_LIST_MAX ? `, newest ${QUAKE_LIST_MAX} listed` : ''}.`;
+      if (Q.truncated) t += ` EMSC returned its limit of ${QUAKE_LIMIT}, so the oldest may be missing.`;
+      this.quakeCount.textContent = t;
+    }
+  }
+
+  /** List entry clicked: open its details there and ring its dot, or close them. */
+  pickQuake(unid, reopen) {
+    const Q = this.quakes;
+    const m = Q.markers.get(unid);
+    if (Q.sel === unid && !reopen) {
+      Q.sel = null;
+      if (m) m.closePopup();
+    } else {
+      if (Q.sel && Q.sel !== unid && Q.markers.has(Q.sel)) Q.markers.get(Q.sel).closePopup();
+      Q.sel = unid;
+    }
+    this.markQuake();
+    this.renderQuakeList();
+  }
+
+  /** Ring the picked event's dot (the list's details sit beside the map). */
+  markQuake() {
+    const Q = this.quakes;
+    if (Q.hl && Q.markers.get(Q.hl.unid) === Q.hl.m) Q.hl.m.setStyle(Q.hl.style);
+    Q.hl = null;
+    const m = Q.sel && Q.markers.get(Q.sel);
+    if (!m) return;
+    Q.hl = { unid: Q.sel, m, style: { color: m.options.color, weight: m.options.weight } };
+    const ring = getComputedStyle(document.documentElement).getPropertyValue('--text').trim() || '#000';
+    m.setStyle({ color: ring, weight: 3 });
+    m.bringToFront();
   }
 
   // --------------------------------------------------------- lightning
@@ -608,30 +863,15 @@ export class MapsPanel {
         || (fetched ? `Open-Meteo · model data fetched ${fmtAge(Date.now() / 1000 - fetched)}` : 'loading…'));
     } else if (this.tab === 'quakes') {
       add('side-h', 'Earthquakes');
-      add('side-note muted', `Last ${QUAKE_DAYS} days: M4+ within ${dist(5000)}, M2+ within ${dist(300)}.`);
-      const list = document.createElement('ol');
-      list.className = 'quake-list';
-      for (const e of this.quakes.events.slice(0, 12)) {
-        const li = document.createElement('li');
-        const badge = document.createElement('span');
-        badge.className = 'mag';
-        badge.style.background = this.quakeColour(e.t);
-        badge.textContent = fmt(e.mag, 1);
-        const txt = document.createElement('div');
-        const a = document.createElement('a');
-        a.href = `https://www.seismicportal.eu/eventdetails.html?unid=${encodeURIComponent(e.unid)}`;
-        a.target = '_blank';
-        a.rel = 'noopener';
-        a.textContent = e.flynn_region;
-        const meta = document.createElement('div');
-        meta.className = 'muted small';
-        meta.textContent = `${dist(e.depth)} deep · ${dist(e.dist)} ${compassPoint(e.bearing)} · ${fmtAge(Date.now() / 1000 - e.t)}`;
-        txt.append(a, meta);
-        li.append(badge, txt);
-        list.append(li);
-      }
-      if (!this.quakes.events.length && this.quakes.fetchedAt) add('side-row muted', 'No earthquakes in range.');
-      side.append(list);
+      const p = this.quakes.prefs;
+      add('side-note muted', `Last ${p.days === 1 ? '24 hours' : `${p.days} days`}: M4+ within ${dist(p.far)}`
+        + `${p.near ? `, M2+ within ${dist(p.near)}` : ''}. The list shows those in the map view; `
+        + 'pick one, or a dot on the map, for details.');
+      this.quakeCount = add('side-row muted small', '');
+      this.quakeListEl = document.createElement('ol');
+      this.quakeListEl.className = 'quake-list';
+      side.append(this.quakeListEl);
+      this.renderQuakeList();
       add('side-age mono muted', this.quakes.error || `EMSC-CSEM · ${age(this.quakes)}`);
     } else {
       add('side-h', 'Lightning near the station');

@@ -24,7 +24,8 @@ A WeeWX 5 skin plus a static, vanilla-JS dashboard:
 - **7-day forecast** (Open-Meteo): click a day, or the hero's outlook line, for its **hourly
   forecast** (temperature and feels-like, chance and amount of rain, wind, gusts, UV); **rain radar** (RainViewer) with nearest echo, movement and a
   rough arrival estimate; a **pressure chart** (isobars, highs and lows, 3 days ahead);
-  **earthquakes** (EMSC); **lightning** (optional, Xweather): strikes within 100 km over the last
+  **earthquakes** (EMSC: pick the look-back and the M4+ and M2+ ranges; the list follows the map
+  view, and a dot or list entry opens its details); **lightning** (optional, Xweather): strikes within 100 km over the last
   hour, coloured by age, with a link to the live LightningMaps.org (Blitzortung) map.
 - **Voltages** (optional): supercap and backup-battery tiles and gauges for whichever archive
   fields hold them (e.g. an Ecowitt WS90 mapped to `supplyVoltage` / `batteryStatus1`).

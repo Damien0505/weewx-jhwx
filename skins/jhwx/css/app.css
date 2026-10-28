@@ -485,13 +485,31 @@ svg.chart { width: 100%; height: 260px; display: block; overflow: visible; }
 .rad-legend { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); margin-left: auto; }
 .rad-legend i { display: inline-block; width: 12px; height: 8px; border-radius: 2px; margin-left: 6px; }
 .quake-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: 330px; overflow-y: auto; }
-.quake-list li { display: flex; gap: 10px; align-items: flex-start; }
-.quake-list .mag {
+.quake-list li { display: flex; flex-direction: column; border-radius: 10px; }
+.quake-list li.open { background: var(--surface2); border: 1px solid var(--line); }
+.q-item {
+  display: flex; gap: 10px; align-items: flex-start; width: 100%; text-align: left; padding: 6px; border-radius: 10px;
+  background: none; border: 0; color: var(--text); font: inherit; cursor: pointer;
+}
+.q-item:hover { background: var(--surface2); }
+.quake-list .mag, .quake-detail .mag {
   flex: none; min-width: 36px; text-align: center; border-radius: 8px; padding: 3px 6px; font-weight: 700;
   color: #fff; font-variant-numeric: tabular-nums;
 }
-.quake-list a { color: var(--text); font-weight: 600; text-decoration: none; }
-.quake-list a:hover { text-decoration: underline; }
+.quake-list .quake-detail { padding: 0 10px 10px; }
+.quake-detail { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.quake-detail .side-facts div { padding: 4px 0; }
+.quake-detail a { color: var(--accent); font-weight: 600; }
+.qd-h { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.quake-ctl { font-size: 13px; }
+.quake-ctl label { display: inline-flex; align-items: center; gap: 6px; }
+.quake-ctl select {
+  min-height: 40px; padding: 0 8px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--surface2); color: var(--text); font: inherit; font-size: 14px;
+}
+.quake-pop .leaflet-popup-content-wrapper, .quake-pop .leaflet-popup-tip { background: var(--surface); color: var(--text); }
+.quake-pop .leaflet-popup-content { margin: 12px 14px; }
+.quake-pop a.leaflet-popup-close-button { color: var(--muted); }
 .leaflet-container { font: inherit; }
 :root[data-theme="dark"] .basemap { filter: invert(1) hue-rotate(180deg) brightness(.9) contrast(.85) saturate(.6); }
 @media (prefers-color-scheme: dark) {
