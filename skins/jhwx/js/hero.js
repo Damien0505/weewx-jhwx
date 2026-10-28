@@ -9,6 +9,20 @@ import { fireNow } from './tiles.js';
 import { fireBand } from './fire.js';
 
 const WORD = { up: 'Rising', down: 'Falling', steady: 'Steady' };
+
+// Beaufort scale: upper limit of each force in km/h (WMO, from m/s limits)
+const BEAUFORT = [
+  [1.8, 'Calm'], [5.8, 'Light air'], [12.2, 'Light breeze'], [19.8, 'Gentle breeze'],
+  [28.8, 'Moderate breeze'], [38.9, 'Fresh breeze'], [50.0, 'Strong breeze'], [61.9, 'Near gale'],
+  [74.9, 'Gale'], [88.2, 'Strong gale'], [102.6, 'Storm'], [117.7, 'Violent storm'], [Infinity, 'Hurricane force'],
+];
+
+/** km/h -> 'Gentle breeze · force 3' ('' when unknown). */
+export function beaufort(kmh) {
+  if (!Number.isFinite(kmh)) return '';
+  const f = BEAUFORT.findIndex(([max]) => kmh < max);
+  return `${BEAUFORT[f][1]} · force ${f}`;
+}
 const ARROW = {
   up: '<path d="M7 12V2M3 6l4-4 4 4"/>',
   down: '<path d="M7 2v10M3 8l4 4 4-4"/>',
@@ -66,28 +80,40 @@ export function renderHero(root, R, trends, cfg, sunAlt, cloud) {
   const calm = (Number.isFinite(ws) && ws < 0.05) || (R.get('windSpeed').src === 'live' && !R.inLatestPacket('windDir'));
   const d3 = trends.delta('barometer', TREND_RULES.barometer.window);
   const dayRain = R.get('dayRain');
-  const stats = [
+  // two columns that stack independently, so a wrapped value in one
+  // doesn't open a gap in the other
+  const cols = [[
     ['Feels like', fmtUL('temp', R.get('appTemp').v, 1)],
-    ['Today high / low', t.max === null ? '—' : `${fmtDeg(t.max, 1)} / ${fmtDeg(t.min, 1)}`],
-    ['Wind', calm ? 'Calm' : `${fmtUL('wind', ws, 1)} ${Number.isFinite(wd) ? compassPoint(wd) : ''}`.trim()],
-    ['Gust', fmtUL('wind', R.get('windGust').v, 1)],
+    ['Wind', calm ? 'Calm' : `${fmtUL('wind', ws, 1)} ${Number.isFinite(wd) ? compassPoint(wd) : ''}`.trim(),
+      calm ? 'Beaufort force 0' : beaufort(ws)],
     ['Rain today', fmtUL('rain', dayRain.src === 'live' ? dayRain.v : R.rain('day'), 1)],
-    ['Pressure', `${fmtUL('pressure', R.get('barometer').v, 1)}${d3 === null ? '' : ` · ${pressureTendency(d3).toLowerCase()}`}`],
     ['Dew point', fmtUL('temp', R.get('dewpoint').v, 1)],
+  ], [
+    ['Today high / low', t.max === null ? '—' : `${fmtDeg(t.max, 1)} / ${fmtDeg(t.min, 1)}`],
+    ['Gust', fmtUL('wind', R.get('windGust').v, 1)],
+    ['Pressure', `${fmtUL('pressure', R.get('barometer').v, 1)}${d3 === null ? '' : ` · ${pressureTendency(d3).toLowerCase()}`}`],
     ['Cloud base', cloudBase(R.get('outTemp').v, R.get('dewpoint').v)],
-  ];
+  ]];
   const grid = q('.hero-stats');
-  if (grid.childElementCount !== stats.length) {
-    grid.replaceChildren(...stats.map(() => {
-      const d = document.createElement('div');
-      d.innerHTML = '<div class="k"></div><div class="v num"></div>';
-      return d;
+  if (grid.childElementCount !== cols.length) {
+    grid.replaceChildren(...cols.map((col) => {
+      const c = document.createElement('div');
+      c.className = 'hs-col';
+      c.replaceChildren(...col.map(() => {
+        const d = document.createElement('div');
+        d.innerHTML = '<div class="k"></div><div class="v num"></div><div class="sub muted"></div>';
+        return d;
+      }));
+      return c;
     }));
   }
-  stats.forEach(([k, v], i) => {
-    grid.children[i].children[0].textContent = k;
-    grid.children[i].children[1].textContent = v;
-  });
+  cols.forEach((col, ci) => col.forEach(([k, v, sub], i) => {
+    const [kEl, vEl, sEl] = grid.children[ci].children[i].children;
+    kEl.textContent = k;
+    vEl.textContent = v;
+    sEl.textContent = sub || '';
+    sEl.hidden = !sub;
+  }));
 
   const cur = R.current;
   const iv = cfg.station.archive_interval_s || 300;
