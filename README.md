@@ -15,6 +15,10 @@ A WeeWX 5 skin plus a static, vanilla-JS dashboard:
 - **History pop-up** for every reading: Day / 7-day / 30-day / Year charts (hover for values,
   dotted means, clear-sky maximum on solar), an almanac (today, month, year, station record);
   **NOAA** reports from the header button.
+- **Heatmaps** (header button): year x month tables of lowest, mean and highest temperature,
+  rainfall, rain days and strongest gust, each cell coloured by value, with a Year column and
+  all-years lowest / mean / highest rows. Months with under half their days recorded are faded and
+  left out of those rows, as is the month in progress.
 - **Evapotranspiration**: WeeWX's reference ET (FAO-56 Penman–Monteith) for today, yesterday and
   7 days, with the 7-day rain − ET water balance, history and a plain-language explanation.
 - **Fire danger** (indicative, Australia, off by default): McArthur Forest FFDI from live
@@ -43,9 +47,10 @@ The skin writes static files each report cycle (every 5 minutes) into its `HTML_
 | `data/config.json` | station facts, MQTT URL/topic, cutover and record cutoffs |
 | `data/current.json` | latest record, today's highs/lows, rain totals (fallback for MQTT) |
 | `data/day.json` | last 24 h of archive records (trend seeds, sparklines, Day charts) |
-| `data/week.json` | last 7 days in 30-minute bins (Week charts) |
+| `data/week.json` | last 7 days in 30-minute bins (7-day charts) |
 | `data/fire.json` | daily drought index and drought factor (fire-danger history) |
-| `data/month.json`, `data/year.json` | one value per day from the daily summaries |
+| `data/month.json`, `data/year.json` | one value per day from the daily summaries (last 30 days / this year) |
+| `data/heatmap.json` | year x month climate grid for the heatmaps (refreshed hourly) |
 | `data/almanac.json` | almanac grid values |
 | `data/astro.json` | sun and moon from the WeeWX almanac |
 | `data/noaa-index.json`, `NOAA/*.txt` | NOAA monthly/yearly summaries |

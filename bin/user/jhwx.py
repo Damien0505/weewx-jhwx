@@ -294,6 +294,10 @@ class JhwxHelper(object):
         stop = getattr(stop, 'raw', stop)
         return json.dumps(self._history.daily(binding, start, stop), separators=(',', ':'))
 
+    def monthly(self, binding):
+        """Year x month climate grid (heatmaps) as compact JSON."""
+        return json.dumps(self._history.monthly(binding), separators=(',', ':'))
+
     def almanac(self, now):
         """Almanac values: today from the live binding, the rest from history."""
         now = getattr(now, 'raw', now)

@@ -122,6 +122,99 @@ class History(object):
             out['windDir'] = dirs
         return out
 
+    # ------------------------------------------------------- monthly grid
+    def _day_rows(self, mgr, obs):
+        """((year, month), min, max, sum, count, wsum, sumtime) per day of a
+        reading's daily summary, local time, days up to its cutoff left out."""
+        if not self._has_day_table(mgr, obs):
+            return
+        cutoff_day = self._day_start(self.cutoff[obs]) if obs in self.cutoff else None
+        for row in mgr.genSql('SELECT dateTime, min, max, sum, count, wsum, sumtime FROM %s_day_%s '
+                              'ORDER BY dateTime' % (mgr.table_name, obs)):
+            if not row[4] or (cutoff_day is not None and row[0] <= cutoff_day):
+                continue
+            lt = time.localtime(row[0])
+            yield (lt.tm_year, lt.tm_mon), row[1:]
+
+    def monthly(self, binding):
+        """Year x month climate grid for the heatmaps:
+        {"years": [...], "first": epoch, "<key>": {"m": [[12 per year]...],
+        "y": [one per year]}} for t_min, t_avg, t_max (outTemp), rain (total),
+        rain_days (days with RAIN_DAY_MM or more) and gust (windGust max), in
+        the report's units; "days" counts the days recorded (coverage)."""
+        mgr = self._mgr(binding)
+        wet = self._conv_rain_threshold(mgr)
+        t = {}      # (y, m) -> [min, max, wsum, sumtime]
+        n = {}      # (y, m) -> days with temperature records (coverage)
+        for k, (mn, mx, sm, cnt, ws, st) in self._day_rows(mgr, 'outTemp'):
+            n[k] = n.get(k, 0) + 1
+            a = t.setdefault(k, [None, None, 0.0, 0.0])
+            if mn is not None:
+                a[0] = mn if a[0] is None else min(a[0], mn)
+            if mx is not None:
+                a[1] = mx if a[1] is None else max(a[1], mx)
+            if st:
+                a[2] += ws
+                a[3] += st
+            elif cnt:
+                a[2] += sm
+                a[3] += cnt
+        r = {}      # (y, m) -> [total, wet days]
+        for k, (_mn, _mx, sm, _cnt, _ws, _st) in self._day_rows(mgr, 'rain'):
+            a = r.setdefault(k, [0.0, 0])
+            a[0] += sm or 0.0
+            v = self._conv(mgr, 'rain', sm or 0.0, 3)
+            if v is not None and v >= wet:
+                a[1] += 1
+        g = {}      # (y, m) -> max gust
+        for k, (_mn, mx, _sm, _cnt, _ws, _st) in self._day_rows(mgr, 'windGust'):
+            if mx is not None:
+                g[k] = mx if k not in g else max(g[k], mx)
+
+        years = sorted({k[0] for k in list(t) + list(r) + list(g)})
+
+        def grid():
+            return {'m': [[None] * 12 for _ in years], 'y': [None] * len(years)}
+
+        out = {'years': years, 'first': mgr.firstGoodStamp(), 'days': grid(),
+               't_min': grid(), 't_avg': grid(), 't_max': grid(),
+               'rain': grid(), 'rain_days': grid(), 'gust': grid()}
+        for yi, y in enumerate(years):
+            out['days']['m'][yi] = [n.get((y, m), 0) for m in range(1, 13)]
+            out['days']['y'][yi] = sum(out['days']['m'][yi])
+            ty = [None, None, 0.0, 0.0]
+            ry = [None, None]
+            gy = None
+            for m in range(1, 13):
+                a = t.get((y, m))
+                if a:
+                    out['t_min']['m'][yi][m - 1] = self._conv(mgr, 'outTemp', a[0])
+                    out['t_max']['m'][yi][m - 1] = self._conv(mgr, 'outTemp', a[1])
+                    if a[3]:
+                        out['t_avg']['m'][yi][m - 1] = self._conv(mgr, 'outTemp', a[2] / a[3])
+                    if a[0] is not None:
+                        ty[0] = a[0] if ty[0] is None else min(ty[0], a[0])
+                    if a[1] is not None:
+                        ty[1] = a[1] if ty[1] is None else max(ty[1], a[1])
+                    ty[2] += a[2]
+                    ty[3] += a[3]
+                a = r.get((y, m))
+                if a:
+                    out['rain']['m'][yi][m - 1] = self._conv(mgr, 'rain', a[0], 1)
+                    out['rain_days']['m'][yi][m - 1] = a[1]
+                    ry[0] = (ry[0] or 0.0) + a[0]
+                    ry[1] = (ry[1] or 0) + a[1]
+                if (y, m) in g:
+                    out['gust']['m'][yi][m - 1] = self._conv(mgr, 'windGust', g[(y, m)], 1)
+                    gy = g[(y, m)] if gy is None else max(gy, g[(y, m)])
+            out['t_min']['y'][yi] = self._conv(mgr, 'outTemp', ty[0])
+            out['t_max']['y'][yi] = self._conv(mgr, 'outTemp', ty[1])
+            out['t_avg']['y'][yi] = self._conv(mgr, 'outTemp', ty[2] / ty[3]) if ty[3] else None
+            out['rain']['y'][yi] = self._conv(mgr, 'rain', ry[0], 1)
+            out['rain_days']['y'][yi] = ry[1]
+            out['gust']['y'][yi] = self._conv(mgr, 'windGust', gy, 1)
+        return out
+
     # ------------------------------------------------------------ almanac
     def _extreme(self, mgr, obs, start, stop, which):
         """(value, time) of the highest ('max') or lowest ('min') value of obs

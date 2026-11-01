@@ -10,6 +10,7 @@ import { renderHero } from './hero.js';
 import { renderSunMoon } from './sunmoon.js';
 import { Forecast, renderForecast } from './forecast.js';
 import { HourlyDialog } from './hourly.js';
+import { HeatmapDialog } from './heatmap.js';
 import { MapsPanel } from './maps.js';
 import { gaugeDefs, mountGauges } from './gauges.js';
 import {
@@ -332,6 +333,8 @@ async function main() {
   });
   state.updateTiles = mountTiles($('#tiles'), tileDefs(cfg), (id) => state.history.open(id));
   $('#noaa-btn').addEventListener('click', () => state.history.open('temp', { noaa: true }));
+  state.heatmaps = new HeatmapDialog();
+  $('#heat-btn').addEventListener('click', () => state.heatmaps.open());
   if (cfg.options.fire.enabled) $('#hero .hero-fire').addEventListener('click', () => state.history.open('fire'));
   mountGaugeView();
   labelItems($('#tiles'), '.tile-label');

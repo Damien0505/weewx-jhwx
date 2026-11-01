@@ -1,0 +1,11 @@
+#errorCatcher Echo
+## Year x month climate grid for the heatmaps (daily summaries, history
+## binding): min / mean / max temperature, rainfall, rain days and max gust.
+## Monthly figures change slowly, so skin.conf regenerates this hourly.
+#set $J = $jhwx
+{
+  "generated": $J.num($J.now),
+  "units": $J.units($unit),
+  "binding": $J.str($J.history_binding),
+  "grid": $J.monthly($J.history_binding)
+}

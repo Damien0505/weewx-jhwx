@@ -622,3 +622,35 @@ button.fc-day:hover { border-color: var(--accent); }
   .hr-days button[role="tab"] { flex: 1; padding: 0 4px; }
   .hr-labels { width: 44px; font-size: 11px; }
 }
+
+/* ---------- heatmaps (header button): year x month tables ---------- */
+.hm-sub { margin-top: 6px; font-size: 14px; }
+.hm-body { padding: 16px 24px 22px; display: flex; flex-direction: column; gap: 12px; }
+.hm-tabs { align-self: flex-start; flex-wrap: wrap; max-width: 100%; }
+.hm-tabs button[role="tab"] { padding: 0 12px; }
+.hm-scroll { overflow-x: auto; overscroll-behavior-x: contain; border-radius: 10px; }
+.hm-table { border-collapse: separate; border-spacing: 2px; font-size: 13px; font-variant-numeric: tabular-nums; min-width: 100%; }
+.hm-table caption { padding: 24px 0; text-align: left; }
+.hm-table th { font-weight: 600; color: var(--muted); padding: 4px 6px; white-space: nowrap; }
+.hm-table thead th { text-align: center; }
+.hm-table th.hm-year, .hm-table th.hm-corner {
+  position: sticky; left: 0; z-index: 1; background: var(--surface); text-align: left; font-weight: 700; color: var(--text);
+}
+.hm-table th.hm-corner { color: var(--muted); font-weight: 600; }
+.hm-c { min-width: 44px; height: 30px; padding: 0 6px; text-align: center; border-radius: 5px; font-weight: 600; }
+.hm-c.hm-none { color: var(--muted); font-weight: 400; background: none; }
+.hm-c.hm-cur { outline: 2px solid var(--text); outline-offset: -2px; }
+.hm-table .hm-ycol { border-left: 2px solid transparent; }
+.hm-table td.hm-ycol { font-weight: 700; }
+.hm-table tfoot tr:first-child th, .hm-table tfoot tr:first-child td { border-top: 6px solid transparent; }
+.hm-table tfoot th.hm-year { font-weight: 600; color: var(--muted); }
+.hm-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; }
+.hm-key { display: inline-flex; align-items: center; gap: 5px; }
+.hm-key i { width: 14px; height: 10px; border-radius: 3px; display: inline-block; }
+.hm-note { margin: 0; }
+@media (max-width: 600px) {
+  .hm-body { padding: 12px 16px 18px; }
+  .hm-table { font-size: 12px; }
+  .hm-c { min-width: 38px; height: 28px; padding: 0 4px; }
+}
+.hm-c.hm-part { opacity: .4; }
