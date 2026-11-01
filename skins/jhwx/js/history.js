@@ -1,4 +1,4 @@
-// History pop-up: Day / Week / Month / Year chart, almanac grid and NOAA reports.
+// History pop-up: Day / Week / 30-day / Year chart, almanac grid and NOAA reports.
 
 import { loadJson } from './data.js';
 import { fmt, fmtTime, compassPoint, conv, unitLabel, unitDp } from './units.js';
@@ -416,14 +416,21 @@ function periodChart(view, data, range, cfg) {
   if (yearly) {
     for (let m = 0; m < 12; m++) xl.push([new Date(start.getFullYear(), m, 1).getTime() / 1000, MONTHS[m]]);
   } else {
-    const dim = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate();
-    for (const day of [1, 6, 11, 16, 21, 26, dim]) {
-      xl.push([new Date(start.getFullYear(), start.getMonth(), day, 12).getTime() / 1000, day === 1 ? `1 ${MONTHS[start.getMonth()]}` : String(day)]);
-    }
+    // rolling 30 days: a label every 5 days, inset from the edges (labels
+    // hard against them are dropped), naming the month on the first label
+    // and whenever it changes
+    let prevMonth = null;
+    d.days.forEach((day, i) => {
+      if (i % 5 !== 2) return;
+      const dt = new Date(day * 1000);
+      const named = dt.getMonth() !== prevMonth;
+      prevMonth = dt.getMonth();
+      xl.push([day + 43200, named ? `${dt.getDate()} ${MONTHS[dt.getMonth()]}` : String(dt.getDate())]);
+    });
   }
   const sub = yearly
     ? `${start.getFullYear()} · weekly values · ${unit}`
-    : `${MONTHS_LONG[start.getMonth()]} ${start.getFullYear()} · daily values · ${unit}`;
+    : `Last 30 days · daily values · ${unit}`;
   return finishChart(chart, { ...view, unit, dp: p.dp !== undefined ? p.dp : view.dp }, spec, legend, xl, sub, cfg);
 }
 
@@ -611,7 +618,7 @@ export class HistoryDialog {
       <div class="seg seg-inset" role="tablist" aria-label="Period">
         <button type="button" role="tab" data-range="day">Day</button>
         <button type="button" role="tab" data-range="week">Week</button>
-        <button type="button" role="tab" data-range="month">Month</button>
+        <button type="button" role="tab" data-range="month">30 days</button>
         <button type="button" role="tab" data-range="year">Year</button>
       </div>
       <button type="button" class="icon-btn dlg-close" aria-label="Close history">

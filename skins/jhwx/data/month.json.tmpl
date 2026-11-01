@@ -1,12 +1,16 @@
 #errorCatcher Echo
-## This month, one value per day (daily summaries, history binding).
-## Readings with a record cutoff are null before it (see config.json).
+## The last 30 days to the end of today, one value per day (daily summaries,
+## history binding).  Readings with a record cutoff are null before it (see
+## config.json).  The start is a local midnight, so DST changes don't shift it.
+#from weeutil.weeutil import startOfDay
 #set $J = $jhwx
+#set $stop = $live.day.end.raw
+#set $start = startOfDay($live.day.start.raw - 29 * 86400 + 43200)
 {
   "generated": $J.num($J.now),
   "units": $J.units($unit),
   "binding": $J.str($J.history_binding),
-  "start": $J.num($live.month.start),
-  "stop": $J.num($live.month.end),
-  "daily": $J.daily($J.history_binding, $live.month.start, $live.month.end)
+  "start": $J.num($start),
+  "stop": $J.num($stop),
+  "daily": $J.daily($J.history_binding, $start, $stop)
 }
