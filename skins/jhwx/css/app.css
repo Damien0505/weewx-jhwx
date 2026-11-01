@@ -642,7 +642,7 @@ button.fc-day:hover { border-color: var(--accent); }
 .hm-c.hm-cur { outline: 2px solid var(--text); outline-offset: -2px; }
 .hm-table .hm-ycol { border-left: 2px solid transparent; }
 .hm-table td.hm-ycol { font-weight: 700; }
-.hm-table tfoot tr:first-child th, .hm-table tfoot tr:first-child td { border-top: 6px solid transparent; }
+.hm-table tr.hm-gap td { height: 8px; padding: 0; }
 .hm-table tfoot th.hm-year { font-weight: 600; color: var(--muted); }
 .hm-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; }
 .hm-key { display: inline-flex; align-items: center; gap: 5px; }

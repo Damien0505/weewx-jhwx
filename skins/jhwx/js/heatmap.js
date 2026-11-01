@@ -235,6 +235,12 @@ export class HeatmapDialog {
     // all-years rows: lowest, mean and highest of each column, from complete
     // enough months and years only
     const tfoot = el('tfoot');
+    const gap = el('tr', 'hm-gap');
+    const gapTd = el('td');
+    gapTd.colSpan = 14;
+    gap.setAttribute('aria-hidden', 'true');
+    gap.append(gapTd);
+    tfoot.append(gap);
     const col = (mi) => (mi < 12
       ? grid.m.map((r, yi) => (isNow(g.years[yi], mi) || sparseM(yi, mi) ? null : r[mi]))
       : grid.y.map((v, yi) => (isNow(g.years[yi]) || sparseY(yi) ? null : v)))
