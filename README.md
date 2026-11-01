@@ -12,7 +12,7 @@ A WeeWX 5 skin plus a static, vanilla-JS dashboard:
   station), plus a **sun & moon** card: a protractor showing the sun's true elevation, and a
   photo of the moon (NASA SVS, public domain) shaded for its phase and turned the way it looks
   from the station at that moment.
-- **History pop-up** for every reading: Day / Week / 30-day / Year charts (hover for values,
+- **History pop-up** for every reading: Day / 7-day / 30-day / Year charts (hover for values,
   dotted means, clear-sky maximum on solar), an almanac (today, month, year, station record);
   **NOAA** reports from the header button.
 - **Evapotranspiration**: WeeWX's reference ET (FAO-56 Penman–Monteith) for today, yesterday and

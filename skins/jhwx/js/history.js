@@ -1,4 +1,4 @@
-// History pop-up: Day / Week / 30-day / Year chart, almanac grid and NOAA reports.
+// History pop-up: Day / 7-day / 30-day / Year chart, almanac grid and NOAA reports.
 
 import { loadJson } from './data.js';
 import { fmt, fmtTime, compassPoint, conv, unitLabel, unitDp } from './units.js';
@@ -617,7 +617,7 @@ export class HistoryDialog {
     <div class="dlg-ctl">
       <div class="seg seg-inset" role="tablist" aria-label="Period">
         <button type="button" role="tab" data-range="day">Day</button>
-        <button type="button" role="tab" data-range="week">Week</button>
+        <button type="button" role="tab" data-range="week">7 days</button>
         <button type="button" role="tab" data-range="month">30 days</button>
         <button type="button" role="tab" data-range="year">Year</button>
       </div>
