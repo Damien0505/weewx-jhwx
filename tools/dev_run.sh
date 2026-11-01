@@ -20,6 +20,7 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 python "$REPO/tools/gen_filelist.py" --check
 # every tile needs a matching gauge
 node "$REPO/tools/check_gauges.mjs"
+node "$REPO/tools/test_radartrack.mjs" >/dev/null || { echo "radar tracking tests failed: node tools/test_radartrack.mjs"; exit 1; }
 
 tar --owner=0 --group=0 -C "$REPO" -czf - install.py bin skins tools/mkconf.py |
   ssh "$HOST" 'set -e; D=/home/weather/jhwx-dev; rm -rf $D; mkdir -p $D;

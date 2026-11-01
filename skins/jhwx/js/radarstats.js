@@ -1,6 +1,7 @@
-// "Rain near the station" from RainViewer radar tiles: nearest echo, echo
-// motion over the last 30 minutes and a rough arrival estimate.  The tiles
-// are read pixel by pixel in a canvas (RainViewer sends CORS headers).
+// "Rain near the station" from RainViewer radar tiles: the last hour of
+// frames is read pixel by pixel in a canvas (RainViewer sends CORS headers),
+// turned into dBZ grids and handed to radartrack.js, which finds the nearest
+// rain, the motion area by area and the rain heading for the station.
 //
 // Estimates only: free-tier tiles stop at zoom 7, the analysis runs at zoom 6
 // (~2 km per pixel here), and a radar echo is not always rain at the ground.
@@ -10,15 +11,10 @@
 // dBZ, so drizzle and virga can be left out.
 
 import { distBearing } from './maps.js';
+import { trackRain } from './radartrack.js';
 
 const ZOOM = 6;
-const RADIUS_KM = 250;          // area analysed around the station
-const NEIGHBOURS_MIN = 4;       // ... and with this many echo neighbours (drops speckle)
-const STATION_KM = 4;           // "rain at the station": an echo this close
-const ARRIVAL_KM = 6;           // an echo passing this close counts as arriving
-const ARRIVAL_MAX_S = 3 * 3600; // don't project further ahead than this
-const MIN_ECHOES = 40;          // fewer pixels than this: too little to track
-const MAX_SPEED_KMH = 150;
+const BLOCK_KM = 330;           // tiles loaded this far around the station (rain counts to 250 km)
 const TIMEOUT_MS = 15000;
 
 const TILE = 256;
@@ -37,7 +33,6 @@ export const RADAR_LEVELS = [
   { dbz: 40, label: 'Heavy rain (40+ dBZ)', short: 'heavy rain' },
 ];
 export const DEFAULT_MIN_DBZ = 20;
-const TRACK_DBZ = 6;            // motion is tracked on every visible echo
 
 const UB = [];                  // [r, g, b, a, dBZ]
 for (let k = 0; k < UB_RAIN.length; k += 8) {
@@ -89,9 +84,8 @@ function loadImage(url) {
   });
 }
 
-/** Echo masks for one frame over the tile block, one per dBZ level in
- *  `levels` ({mask: Uint8Array (1 = echo of at least that level), w, h}). */
-async function frameMasks(host, frame, block, levels) {
+/** dBZ grid (Int8Array, -32 = no echo) of one frame over the tile block. */
+async function frameDbz(host, frame, block) {
   const { tx0, ty0, nx, ny } = block;
   const cv = document.createElement('canvas');
   cv.width = nx * TILE;
@@ -113,77 +107,22 @@ async function frameMasks(host, frame, block, levels) {
     const o = k * 4;
     dbz[k] = data[o + 3] ? dbzOf(data[o], data[o + 1], data[o + 2], data[o + 3]) : -32;
   }
-  return levels.map((lvl) => {
-    const raw = new Uint8Array(w * h);
-    for (let k = 0; k < w * h; k++) raw[k] = dbz[k] >= lvl ? 1 : 0;
-    const mask = new Uint8Array(w * h);
-    for (let y = 1; y < h - 1; y++) {
-      for (let x = 1; x < w - 1; x++) {
-        const k = y * w + x;
-        if (!raw[k]) continue;
-        const n = raw[k - w - 1] + raw[k - w] + raw[k - w + 1] + raw[k - 1] + raw[k + 1]
-          + raw[k + w - 1] + raw[k + w] + raw[k + w + 1];
-        if (n >= NEIGHBOURS_MIN) mask[k] = 1;
-      }
-    }
-    return { mask, w, h };
-  });
-}
-
-/** Sum the mask into b x b blocks (fraction of echo per block). */
-function blocks(m, b) {
-  const bw = Math.floor(m.w / b);
-  const bh = Math.floor(m.h / b);
-  const out = new Float32Array(bw * bh);
-  for (let y = 0; y < bh * b; y++) {
-    for (let x = 0; x < bw * b; x++) {
-      if (m.mask[y * m.w + x]) out[Math.floor(y / b) * bw + Math.floor(x / b)] += 1 / (b * b);
-    }
-  }
-  return { v: out, w: bw, h: bh };
-}
-
-/** Best shift (dx, dy) of grid a onto grid b, searched around (cx, cy). */
-function bestShift(a, b, cx, cy, span) {
-  let best = { dx: cx, dy: cy, score: -1 };
-  for (let dy = cy - span; dy <= cy + span; dy++) {
-    for (let dx = cx - span; dx <= cx + span; dx++) {
-      let s = 0;
-      const y0 = Math.max(0, -dy);
-      const y1 = Math.min(a.h, a.h - dy);
-      const x0 = Math.max(0, -dx);
-      const x1 = Math.min(a.w, a.w - dx);
-      for (let y = y0; y < y1; y++) {
-        const ra = y * a.w;
-        const rb = (y + dy) * a.w + dx;
-        for (let x = x0; x < x1; x++) {
-          const va = a.v[ra + x];
-          if (va) s += va * b.v[rb + x];
-        }
-      }
-      if (s > best.score) best = { dx, dy, score: s };
-    }
-  }
-  return best;
+  return { dbz, w, h };
 }
 
 /**
+ * Rain near the station from the last hour of radar.
  * @param {string} host  RainViewer host
  * @param {Array<{time:number,path:string}>} frames  past frames, oldest first
- * @param {number} minDbz  weakest echo that counts (RADAR_LEVELS)
- * @returns {Promise<object>} { time, minDbz, echoes, nearest, atStation, motion, arrival }
+ * @param {number} minDbz  weakest echo that counts as rain (RADAR_LEVELS)
+ * @returns {Promise<object>} { time, minDbz, frames, echoes, nearest, atStation,
+ *   motion, approach, arrival } - places have lat, lon, dist (km), bearing.
  */
 export async function analyseRadar(host, frames, lat, lon, minDbz = DEFAULT_MIN_DBZ) {
   const now = frames[frames.length - 1];
-  // the frame closest to 30 minutes before the newest one
-  let prev = null;
-  for (const f of frames) {
-    if (f === now) continue;
-    if (!prev || Math.abs(now.time - f.time - 1800) < Math.abs(now.time - prev.time - 1800)) prev = f;
-  }
   const st = worldPx(lat, lon, ZOOM);
   const kmPerPx = 40075.016686 * Math.cos(lat * Math.PI / 180) / (TILE * 2 ** ZOOM);
-  const rPx = RADIUS_KM / kmPerPx;
+  const rPx = BLOCK_KM / kmPerPx;
   const tx0 = Math.floor((st.x - rPx) / TILE);
   const ty0 = Math.floor((st.y - rPx) / TILE);
   const block = {
@@ -192,67 +131,43 @@ export async function analyseRadar(host, frames, lat, lon, minDbz = DEFAULT_MIN_
   const sx = st.x - tx0 * TILE;   // station in block pixels
   const sy = st.y - ty0 * TILE;
 
-  // the chosen level decides which echoes are rain (nearest, arrival); motion
-  // is tracked on every echo, as sparse strong cells form and fade too fast
-  // to follow reliably over 30 minutes
-  const [cur, curAll] = await frameMasks(host, now, block, [minDbz, TRACK_DBZ]);
-  const out = { time: now.time, minDbz, echoes: 0, nearest: null, atStation: false, motion: null, arrival: null };
+  // every frame of the hour; older ones that fail to load are left out
+  const got = await Promise.allSettled(frames.map((f) => frameDbz(host, f, block)));
+  const newest = got[got.length - 1];
+  if (newest.status !== 'fulfilled') throw newest.reason;
+  const used = got.map((r, i) => [r, frames[i]]).filter(([r]) => r.status === 'fulfilled');
+  const { w, h } = newest.value;
+  const t = trackRain({
+    grids: used.map(([r]) => r.value.dbz), times: used.map(([, f]) => f.time), w, h, sx, sy, kmPerPx, minDbz,
+  });
 
-  // nearest echo and echo list (km east/south of the station) within the radius
-  const pts = [];
-  let best = Infinity;
-  let bx = 0;
-  let by = 0;
-  for (let y = 0; y < cur.h; y++) {
-    for (let x = 0; x < cur.w; x++) {
-      if (!cur.mask[y * cur.w + x]) continue;
-      const ex = (x + 0.5 - sx) * kmPerPx;
-      const ey = (y + 0.5 - sy) * kmPerPx;
-      const d = Math.hypot(ex, ey);
-      if (d > RADIUS_KM) continue;
-      pts.push(ex, ey);
-      if (d < best) { best = d; bx = x + 0.5; by = y + 0.5; }
-    }
+  const toLL = (ex, ey) => pxToLatLon(tx0 * TILE + sx + ex / kmPerPx, ty0 * TILE + sy + ey / kmPerPx, ZOOM);
+  const place = (ex, ey) => { const p = toLL(ex, ey); return { ...distBearing(lat, lon, p.lat, p.lon), lat: p.lat, lon: p.lon }; };
+  const out = {
+    time: now.time, minDbz, frames: used.length, echoes: t.echoes,
+    nearest: t.nearest ? place(t.nearest.ex, t.nearest.ey) : null,
+    atStation: t.atStation,
+    motion: t.motion ? { speed: t.motion.speed, toward: t.motion.toward, still: t.motion.still } : null,
+    approach: null,
+    arrival: null,
+  };
+  const a = t.approach;
+  if (a) {
+    const pass = place(a.pass.ex, a.pass.ey);
+    out.approach = {
+      onCourse: a.onCourse,                           // false: the closest near miss instead
+      ...place(a.from.ex, a.from.ey),                 // the part of the rain that's on course, now
+      to: toLL(a.to.ex, a.to.ey),                     // where that part passes the station closest
+      edge: place(a.lead.ex, a.lead.ey),              // the cell's nearest edge now
+      areaKm2: a.areaKm2,
+      speed: a.speed,
+      toward: a.toward,
+      maxDbz: a.maxDbz,
+      eta: a.reach !== null ? now.time + a.reach : null,
+      pass: { dist: a.pass.miss, side: pass.bearing, time: now.time + a.pass.t, closing: a.pass.closing },
+      trend: a.trend ? a.trend.label : null,
+    };
+    out.arrival = out.approach.eta;
   }
-  out.echoes = pts.length / 2;
-  if (out.echoes) {
-    const p = pxToLatLon(tx0 * TILE + bx, ty0 * TILE + by, ZOOM);
-    out.nearest = { ...distBearing(lat, lon, p.lat, p.lon), lat: p.lat, lon: p.lon };
-    out.atStation = best <= STATION_KM;
-  }
-  let tracked = 0;
-  for (let k = 0; k < curAll.mask.length; k++) tracked += curAll.mask[k];
-  if (!prev || !out.echoes || tracked < MIN_ECHOES) return out;
-
-  // motion: cross-correlate the older frame onto the newest, coarse then fine
-  const [old] = await frameMasks(host, prev, block, [TRACK_DBZ]);
-  const dt = now.time - prev.time;
-  const span = Math.ceil(MAX_SPEED_KMH * dt / 3600 / kmPerPx);
-  const c4 = bestShift(blocks(old, 4), blocks(curAll, 4), 0, 0, Math.ceil(span / 4));
-  const f2 = bestShift(blocks(old, 2), blocks(curAll, 2), c4.dx * 2, c4.dy * 2, 2);
-  if (f2.score <= 0) return out;
-  const vx = f2.dx * 2 * kmPerPx / dt;     // km/s east
-  const vy = f2.dy * 2 * kmPerPx / dt;     // km/s south
-  const speed = Math.hypot(vx, vy) * 3600;
-  out.motion = { speed, toward: (Math.atan2(vx, -vy) * 180 / Math.PI + 360) % 360, still: speed < 5 };
-  if (out.motion.still || out.atStation) return out;
-
-  // arrival: soonest time any echo passes within ARRIVAL_KM of the station
-  const v2 = vx * vx + vy * vy;
-  let first = Infinity;
-  for (let k = 0; k < pts.length; k += 2) {
-    const px = pts[k];
-    const py = pts[k + 1];
-    const tc = -(px * vx + py * vy) / v2;           // time of closest approach (s)
-    if (tc <= 0) continue;
-    const cx = px + vx * tc;
-    const cy = py + vy * tc;
-    const miss = Math.hypot(cx, cy);
-    if (miss > ARRIVAL_KM) continue;
-    const t = tc - Math.sqrt(ARRIVAL_KM ** 2 - miss ** 2) / Math.sqrt(v2);
-    if (t < first) first = t;
-  }
-  // count from the newest frame's time, not from now
-  if (first <= ARRIVAL_MAX_S) out.arrival = now.time + Math.max(0, first);
   return out;
 }

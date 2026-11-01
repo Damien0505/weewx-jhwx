@@ -272,6 +272,42 @@ export class MapsPanel {
       .addTo(this.overlay);
     L.circleMarker([n.lat, n.lon], { radius: 6, color: '#D9382A', weight: 2, fill: false })
       .bindTooltip(`Nearest echo · ${dist(n.dist)} ${compassPoint(n.bearing)}`).addTo(this.overlay);
+    this.drawApproach();
+  }
+
+  /** The rain heading this way: the part of it that's on course, ringed, and
+   *  its projected path to where it passes the station, with an arrowhead. */
+  drawApproach() {
+    const a = this.radar.stats && this.radar.stats.approach;
+    if (!a) return;
+    const col = a.onCourse ? '#F08A24' : '#B9A06A';    // orange: on course; muted: a near miss
+    const c = [a.lat, a.lon];
+    const end = [a.to.lat, a.to.lon];
+    L.circle(c, { radius: 8000, color: col, weight: 2, fill: false, dashArray: '3 4', interactive: false })
+      .addTo(this.overlay);
+    L.polyline([c, end], { color: col, weight: 2.5, dashArray: '8 6', interactive: false }).addTo(this.overlay);
+    // arrowhead at the end of the path, pointing along the motion
+    const off = (p, km, brg) => {
+      const r = brg * Math.PI / 180;
+      return [p[0] + km * Math.cos(r) / 111.2, p[1] + km * Math.sin(r) / (111.2 * Math.cos(p[0] * Math.PI / 180))];
+    };
+    const head = Math.max(4, Math.min(12, a.speed / 6));
+    L.polyline([off(end, head, a.toward + 150), end, off(end, head, a.toward - 150)],
+      { color: col, weight: 2.5, interactive: false }).addTo(this.overlay);
+    L.circleMarker(c, { radius: 5, color: '#ffffff', weight: 1.5, fillColor: col, fillOpacity: 1 })
+      .bindTooltip(`${a.onCourse ? 'Approaching rain' : 'Passing rain (not on course)'} · ${this.arrivalText(a)}`).addTo(this.overlay);
+  }
+
+  /** "~1.5 h (~10:40), estimate" or "passing ~9 km N around 10:50". */
+  arrivalText(a) {
+    if (a.eta) {
+      const mins = (a.eta - Date.now() / 1000) / 60;
+      if (mins < 15) return 'any time now (estimate)';
+      const span = mins < 90 ? `~${Math.round(mins / 10) * 10} min` : `~${Math.round(mins / 30) / 2} h`;
+      return `${span}, around ${fmtTime(a.eta)} (estimate)`;
+    }
+    if (a.pass.closing) return `still ~${dist(a.pass.dist)} ${compassPoint(a.pass.side)} in 3 h, moving closer`;
+    return `passing ~${dist(a.pass.dist)} ${compassPoint(a.pass.side)} around ${fmtTime(a.pass.time)}`;
   }
 
   setFrame(i) {
@@ -340,15 +376,21 @@ export class MapsPanel {
     rows.push(['Nearest rain echo', s.nearest ? (s.atStation ? 'Over the station' : `${dist(s.nearest.dist)} ${compassPoint(s.nearest.bearing)}`)
       : `None within ${dist(radius)}`]);
     if (s.nearest) {
-      rows.push(['Movement', !s.motion ? 'Too little to track'
+      rows.push(['Overall movement', !s.motion ? 'Too little to track'
         : s.motion.still ? 'Little movement' : `Toward ${compassPoint(s.motion.toward)} at ~${fmtUL('wind', s.motion.speed, 0)}`]);
-      if (!s.atStation && s.motion && !s.motion.still) {
-        let arr = 'Not heading this way';
-        if (s.arrival) {
-          const mins = (s.arrival - Date.now() / 1000) / 60;
-          arr = mins < 15 ? 'Any time now (estimate)' : mins < 90 ? `~${Math.round(mins / 10) * 10} min (estimate)` : `~${Math.round(mins / 30) / 2} h (estimate)`;
+      const a = s.approach;
+      if (!s.atStation && s.motion) {
+        if (a) {
+          rows.push([a.onCourse ? 'Approaching rain' : 'Passing rain', `${dist(a.dist)} ${compassPoint(a.bearing)}, `
+            + `moving ${compassPoint(a.toward)} at ~${fmtUL('wind', a.speed, 0)}`]);
+          const txt = this.arrivalText(a);
+          rows.push([a.eta ? 'Possible arrival' : 'Closest pass',
+            `${txt.charAt(0).toUpperCase()}${txt.slice(1)}${a.onCourse ? '' : ' (not on course)'}`]);
+          if (a.trend) rows.push(['Trend (last hour)', a.trend.charAt(0).toUpperCase() + a.trend.slice(1)]);
+          if (!a.onCourse) rows.push(['Possible arrival', 'Nothing on course in the next 3 h']);
+        } else {
+          rows.push(['Possible arrival', 'Nothing on course in the next 3 h']);
         }
-        rows.push(['Possible arrival', arr]);
       }
     }
     rows.push(['Rain at station', gauge ? `${gauge} (gauge)` : s.atStation ? 'Echo overhead, gauge dry' : 'None now']);
@@ -864,7 +906,9 @@ export class MapsPanel {
       side.append(facts);
       const lvl = RADAR_LEVELS.find((l) => l.dbz === this.radar.minDbz) || RADAR_LEVELS[0];
       add('side-note muted', `Counting ${lvl.short} on the radar${lvl.dbz > RADAR_LEVELS[0].dbz ? ` (${lvl.dbz} dBZ and up)` : ''}. `
-        + 'Movement is tracked on every radar echo; it and the arrival time are estimates from the last 30 minutes. '
+        + 'Approaching rain is the rain whose current track brings it within 15 km soonest (orange path on the map); '
+        + 'if none does, the rain passing closest within 60 km is shown instead (muted path). '
+        + 'Movement is measured cell by cell over the last hour of frames, so these are estimates. '
         + 'Radar can show echoes that don’t reach the ground. Last hour in 10-minute frames; tiles stop at zoom 7.');
       add('side-age mono muted', this.radar.error || this.radar.statsError || `RainViewer · ${age(this.radar)}`);
     } else if (this.tab === 'mslp') {

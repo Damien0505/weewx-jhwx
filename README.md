@@ -27,8 +27,9 @@ A WeeWX 5 skin plus a static, vanilla-JS dashboard:
   from the station's own rain and temperature history, shown in AFDRS-style bands. Not an
   official rating.
 - **7-day forecast** (Open-Meteo): click a day, or the hero's outlook line, for its **hourly
-  forecast** (temperature and feels-like, chance and amount of rain, wind, gusts, UV); **rain radar** (RainViewer) with nearest echo (light rain or heavier by default; viewers can choose), movement and a
-  rough arrival estimate; a **pressure chart** (isobars, highs and lows, 3 days ahead);
+  forecast** (temperature and feels-like, chance and amount of rain, wind, gusts, UV); **rain radar** (RainViewer) with nearest echo (light rain or heavier by default; viewers can choose)
+  and the rain heading for the station: each rain cell tracked over the last hour of frames, its projected path,
+  arrival time or closest pass, and whether it is strengthening or weakening; a **pressure chart** (isobars, highs and lows, 3 days ahead);
   **earthquakes** (EMSC: pick the look-back and the M4+ and M2+ ranges; the list follows the map
   view, and a dot or list entry opens its details); **lightning** (optional, Xweather): strikes within 100 km over the last
   hour, coloured by age, with a link to the live LightningMaps.org (Blitzortung) map.

@@ -89,6 +89,7 @@ FILES = [
         'skins/jhwx/js/maps.js',
         'skins/jhwx/js/mslp.js',
         'skins/jhwx/js/radarstats.js',
+        'skins/jhwx/js/radartrack.js',
         'skins/jhwx/js/sunmoon.js',
         'skins/jhwx/js/theme.js',
         'skins/jhwx/js/tiles.js',
