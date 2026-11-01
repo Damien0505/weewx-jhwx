@@ -12,7 +12,8 @@ A WeeWX 5 skin plus a static, vanilla-JS dashboard:
   station), plus a **sun & moon** card: a protractor showing the sun's true elevation, and a
   photo of the moon (NASA SVS, public domain) shaded for its phase and turned the way it looks
   from the station at that moment.
-- **History pop-up** for every reading: Day / 7-day / 30-day / Year charts (hover for values,
+- **History pop-up** for every reading: Day / 7-day / 30-day / Year charts, or a **custom date
+  range** (daily, weekly or monthly values by its length, back to the start of the history) (hover for values,
   dotted means, clear-sky maximum on solar), an almanac (today, month, year, station record);
   **NOAA** reports from the header button.
 - **Heatmaps** (header button): year x month tables of lowest, mean and highest temperature,
@@ -51,6 +52,7 @@ The skin writes static files each report cycle (every 5 minutes) into its `HTML_
 | `data/fire.json` | daily drought index and drought factor (fire-danger history) |
 | `data/month.json`, `data/year.json` | one value per day from the daily summaries (last 30 days / this year) |
 | `data/heatmap.json` | year x month climate grid for the heatmaps (refreshed hourly) |
+| `data/daily-YYYY.json` | one value per day per calendar year (custom date ranges; past years written once) |
 | `data/almanac.json` | almanac grid values |
 | `data/astro.json` | sun and moon from the WeeWX almanac |
 | `data/noaa-index.json`, `NOAA/*.txt` | NOAA monthly/yearly summaries |

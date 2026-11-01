@@ -1,0 +1,13 @@
+#errorCatcher Echo
+## One value per day for one calendar year (daily summaries, history binding),
+## for custom date ranges in the history pop-up.  WeeWX writes one file per
+## year ([[SummaryByYear]]): past years once, the current year each cycle.
+#set $J = $jhwx
+{
+  "generated": $J.num($J.now),
+  "units": $J.units($unit),
+  "binding": $J.str($J.history_binding),
+  "start": $J.num($year.start),
+  "stop": $J.num($year.end),
+  "daily": $J.daily($J.history_binding, $year.start, $year.end)
+}

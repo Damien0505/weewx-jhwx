@@ -43,6 +43,7 @@ FILES = [
         'skins/jhwx/data/astro.json.tmpl',
         'skins/jhwx/data/config.json.tmpl',
         'skins/jhwx/data/current.json.tmpl',
+        'skins/jhwx/data/daily-%Y.json.tmpl',
         'skins/jhwx/data/day.json.tmpl',
         'skins/jhwx/data/fire.json.tmpl',
         'skins/jhwx/data/heatmap.json.tmpl',

@@ -237,6 +237,19 @@ function withUnits(view) {
   };
 }
 
+// custom range: local 'YYYY-MM-DD' (date inputs) <-> local-midnight epochs
+const CUSTOM_DEFAULT_DAYS = 90;
+const pad2 = (n) => String(n).padStart(2, '0');
+const isoDay = (ts) => { const d = new Date(ts * 1000); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; };
+const dayFromIso = (s) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || '');
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime() / 1000 : null;
+};
+const midnight = (ts, addDays = 0) => {
+  const d = new Date(ts * 1000);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + addDays).getTime() / 1000;
+};
+
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const dayTime = (x) => `${WEEKDAYS[new Date(x * 1000).getDay()]} ${fmtTime(x)}`;
 
@@ -332,89 +345,144 @@ function dayChart(view, day, cfg, week = false) {
   return finishChart(chart, view, spec, legend, xl, `${week ? 'Last 7 days' : 'Last 24 hours'} · ${what} · ${view.unit}`, cfg);
 }
 
-function weekly(days, vals, agg) {
-  // group daily values into 7-day blocks starting at the first day
+/** One value from a bin of daily values: sum, max, min or (default) mean. */
+function aggregate(chunk, agg) {
+  if (!chunk.length) return null;
+  if (agg === 'sum') return chunk.reduce((a, b) => a + b, 0);
+  if (agg === 'max') return Math.max(...chunk);
+  if (agg === 'min') return Math.min(...chunk);
+  return chunk.reduce((a, b) => a + b, 0) / chunk.length;
+}
+
+const ok = (x) => x !== null && x !== undefined && Number.isFinite(x);
+
+/** Group daily values into bins: 'day' (as they are), 'week' (7-day blocks
+ *  from the first day) or 'month' (calendar months).  t = bin start. */
+function binned(days, vals, agg, bin) {
+  if (bin === 'day') return { t: days, v: vals };
   const t = [];
   const v = [];
-  for (let i = 0; i < days.length; i += 7) {
-    const chunk = vals.slice(i, i + 7).filter((x) => x !== null && Number.isFinite(x));
-    t.push(days[i]);
-    if (!chunk.length) v.push(null);
-    else if (agg === 'sum') v.push(chunk.reduce((a, b) => a + b, 0));
-    else if (agg === 'max') v.push(Math.max(...chunk));
-    else if (agg === 'min') v.push(Math.min(...chunk));
-    else v.push(chunk.reduce((a, b) => a + b, 0) / chunk.length);
+  if (bin === 'week') {
+    for (let i = 0; i < days.length; i += 7) {
+      t.push(days[i]);
+      v.push(aggregate(vals.slice(i, i + 7).filter(ok), agg));
+    }
+    return { t, v };
   }
+  let cur = null;
+  let chunk = [];
+  days.forEach((d, i) => {
+    const dt = new Date(d * 1000);
+    const m0 = new Date(dt.getFullYear(), dt.getMonth(), 1).getTime() / 1000;
+    if (m0 !== cur) {
+      if (cur !== null) v.push(aggregate(chunk, agg));
+      t.push(m0);
+      cur = m0;
+      chunk = [];
+    }
+    if (ok(vals[i])) chunk.push(vals[i]);
+  });
+  if (cur !== null) v.push(aggregate(chunk, agg));
   return { t, v };
 }
 
+/** X labels for a custom range: every few days up to ~3 months, otherwise
+ *  month starts (every 1-24 months), naming the month or year as it changes. */
+function rangeLabels(t0, t1) {
+  const xl = [];
+  const a = new Date(t0 * 1000);
+  const days = Math.round((t1 - t0) / 86400);
+  if (days <= 92) {
+    const step = Math.max(1, Math.ceil(days / 6));
+    let prev = null;
+    for (let i = Math.floor(step / 2); i < days; i += step) {
+      const dt = new Date(a.getFullYear(), a.getMonth(), a.getDate() + i, 12);
+      const named = dt.getMonth() !== prev;
+      prev = dt.getMonth();
+      xl.push([dt.getTime() / 1000, named ? `${dt.getDate()} ${MONTHS[dt.getMonth()]}` : String(dt.getDate())]);
+    }
+    return xl;
+  }
+  const b = new Date(t1 * 1000);
+  const months = (b.getFullYear() - a.getFullYear()) * 12 + b.getMonth() - a.getMonth() + 1;
+  const step = [1, 2, 3, 4, 6, 12, 24].find((s) => months / s <= 6) || 24;   // ≤ 6 labels fit a phone
+  let prevY = null;
+  for (let k = 0; k <= months; k++) {
+    const dt = new Date(a.getFullYear(), a.getMonth() + k, 1);
+    const ts = dt.getTime() / 1000;
+    if (ts < t0 || ts >= t1 || (dt.getFullYear() * 12 + dt.getMonth()) % step) continue;
+    const yearChanged = dt.getFullYear() !== prevY;
+    prevY = dt.getFullYear();
+    // "Jul ’24": a short year keeps month labels apart on a phone
+    const label = step >= 12 ? String(dt.getFullYear())
+      : yearChanged ? `${MONTHS[dt.getMonth()]} ’${String(dt.getFullYear()).slice(2)}` : MONTHS[dt.getMonth()];
+    xl.push([ts, label]);
+  }
+  return xl;
+}
+
+/** 30 days (daily values), Year (weekly) or a custom range (daily, weekly or
+ *  monthly by its length, data.bin) from the daily summaries. */
 function periodChart(view, data, range, cfg) {
   const d = data.daily;
   const p = view.period;
-  const yearly = range === 'year';
+  const custom = range === 'custom';
+  const bin = range === 'year' ? 'week' : custom ? data.bin : 'day';
   const t0 = data.start;
   const t1 = data.stop;
-  const slotS = yearly ? 7 * 86400 : 86400;
+  const slotS = bin === 'week' ? 7 * 86400 : bin === 'month' ? 30.44 * 86400 : 86400;
   const unit = p.unit || view.unit;
   const spec = { t0, t1, slotS };
   if (view.fire) spec.minHi = 10;      // drought factor runs 0-10
   const legend = [];
   const get = (obs, agg) => view.cv((d[obs] && d[obs][agg]) || d.days.map(() => null));
-  const dayLabel = (x) => {
+  const binLabel = (x) => {            // x = bin start
     const dt = new Date(x * 1000);
-    return `${yearly ? 'Week of ' : ''}${dt.getDate()} ${MONTHS[dt.getMonth()]}`;
+    if (bin === 'month') return `${MONTHS_LONG[dt.getMonth()]} ${dt.getFullYear()}`;
+    return `${bin === 'week' ? 'Week of ' : ''}${dt.getDate()} ${MONTHS[dt.getMonth()]}${custom ? ` ${dt.getFullYear()}` : ''}`;
   };
   if (p.bars) {
-    let vals = get(p.bars[0], p.bars[1]).map((x) => (x === null ? null : x * (p.scale || 1)));
-    let t = d.days;
-    if (yearly) ({ t, v: vals } = weekly(d.days, vals, p.yearAgg || 'sum'));
+    const barName = bin === 'day' ? p.monthName : bin === 'week' ? p.yearName : p.yearName.replace(/^Weekly/, 'Monthly');
+    const raw = get(p.bars[0], p.bars[1]).map((x) => (x === null ? null : x * (p.scale || 1)));
+    const { t, v: vals } = binned(d.days, raw, p.yearAgg || 'sum', bin);
     spec.bars = { t, v: vals };
-    legend.push(['var(--accent)', yearly ? p.yearName : p.monthName]);
+    legend.push(['var(--accent)', barName]);
     spec.hover = {
       t: t.map((x) => x + slotS / 2),
-      rows: [{ name: yearly ? p.yearName : p.monthName, color: 'var(--accent)', v: vals, bar: true }],
-      label: (x) => dayLabel(x - slotS / 2),
+      rows: [{ name: barName, color: 'var(--accent)', v: vals, bar: true }],
+      label: (x) => binLabel(x - slotS / 2),
     };
     if (view.rate) {
-      // daily (month) or weekly (year) peak rate, in native units for addRateSeries
-      let rrRaw = (d[view.rate.obs] && d[view.rate.obs].max) || d.days.map(() => null);
-      let rt = d.days;
-      if (yearly) ({ t: rt, v: rrRaw } = weekly(d.days, rrRaw, 'max'));
-      addRateSeries(view, spec, legend, rt.map((x) => x + slotS / 2), rrRaw, slotS * 2.5);
+      // peak rate per bin, in native units for addRateSeries
+      const rrRaw = (d[view.rate.obs] && d[view.rate.obs].max) || d.days.map(() => null);
+      const r = binned(d.days, rrRaw, 'max', bin);
+      addRateSeries(view, spec, legend, r.t.map((x) => x + slotS / 2), r.v, slotS * 2.5);
     }
   } else {
     const lo = get(p.band[0], p.band[1]);
     const hi = p.band[3] ? get(p.band[3], p.band[4]) : get(p.band[0], p.band[2]);
-    const mean = get(p.mean[0], p.mean[1]);
-    let t = d.days.map((x) => x + 43200);
-    let L = lo;
-    let Hh = hi;
-    let M = mean;
-    if (yearly) {
-      t = weekly(d.days, lo, 'min').t.map((x) => x + 3.5 * 86400);
-      L = weekly(d.days, lo, 'min').v;
-      Hh = weekly(d.days, hi, 'max').v;
-      M = weekly(d.days, mean, 'avg').v;
-    }
-    spec.band = t.map((x, i) => [x, L[i], Hh[i]]);
+    const L = binned(d.days, lo, 'min', bin);
+    const Hh = binned(d.days, hi, 'max', bin).v;
+    const M = binned(d.days, get(p.mean[0], p.mean[1]), 'avg', bin).v;
+    const half = bin === 'day' ? 43200 : slotS / 2;
+    const t = L.t.map((x) => x + half);
+    spec.band = t.map((x, i) => [x, L.v[i], Hh[i]]);
     spec.lines = [{ t, v: M, cls: 'l1' }];
     spec.gapS = slotS * 1.5;
     legend.push(['var(--accentSoft)', p.bandName], ['var(--accent)', p.lineName]);
     // wind: the band's low edge is the average itself, so list it once
     const rows = [{ name: p.band[3] ? 'Max gust' : 'High', color: 'var(--muted)', v: Hh },
       { name: p.lineName, color: 'var(--accent)', v: M }];
-    if (!p.band[3]) rows.push({ name: 'Low', color: 'var(--muted)', v: L });
-    spec.hover = {
-      t,
-      rows,
-      label: (x) => dayLabel(yearly ? x - 3.5 * 86400 : x - 43200),
-    };
+    if (!p.band[3]) rows.push({ name: 'Low', color: 'var(--muted)', v: L.v });
+    spec.hover = { t, rows, label: (x) => binLabel(x - half) };
   }
   const chart = buildChart(spec);
-  const xl = [];
+  let xl = [];
   const start = new Date(t0 * 1000);
-  if (yearly) {
+  if (range === 'year') {
     for (let m = 0; m < 12; m++) xl.push([new Date(start.getFullYear(), m, 1).getTime() / 1000, MONTHS[m]]);
+  } else if (custom) {
+    xl = rangeLabels(t0, t1);
   } else {
     // rolling 30 days: a label every 5 days, inset from the edges (labels
     // hard against them are dropped), naming the month on the first label
@@ -428,9 +496,11 @@ function periodChart(view, data, range, cfg) {
       xl.push([day + 43200, named ? `${dt.getDate()} ${MONTHS[dt.getMonth()]}` : String(dt.getDate())]);
     });
   }
-  const sub = yearly
-    ? `${start.getFullYear()} · weekly values · ${unit}`
-    : `Last 30 days · daily values · ${unit}`;
+  const fmtD = (x) => { const dt = new Date(x * 1000); return `${dt.getDate()} ${MONTHS[dt.getMonth()]} ${dt.getFullYear()}`; };
+  const per = { day: 'daily', week: 'weekly', month: 'monthly' }[bin];
+  const sub = range === 'year' ? `${start.getFullYear()} · weekly values · ${unit}`
+    : custom ? `${fmtD(t0)} – ${fmtD(t1 - 1)} · ${per} values · ${unit}`
+      : `Last 30 days · daily values · ${unit}`;
   return finishChart(chart, { ...view, unit, dp: p.dp !== undefined ? p.dp : view.dp }, spec, legend, xl, sub, cfg);
 }
 
@@ -603,6 +673,73 @@ export class HistoryDialog {
     return data;
   }
 
+  /** First and last days a custom range can use: history start .. today. */
+  _customBounds() {
+    const today = midnight(Date.now() / 1000);
+    const first = this.cfg.history_start ? midnight(this.cfg.history_start) : midnight(today, -3650);
+    return { first, today };
+  }
+
+  /** Show the chosen range in the date inputs (first time: the last 90 days). */
+  _syncCustom() {
+    const { first, today } = this._customBounds();
+    if (!this.custom) this.custom = { from: Math.max(first, midnight(today, -(CUSTOM_DEFAULT_DAYS - 1))), to: today };
+    const from = this.ov.querySelector('.rg-from');
+    const to = this.ov.querySelector('.rg-to');
+    for (const inp of [from, to]) { inp.min = isoDay(first); inp.max = isoDay(today); }
+    from.value = isoDay(this.custom.from);
+    to.value = isoDay(this.custom.to);
+    this.ov.querySelector('.rg-msg').textContent = '';
+  }
+
+  /** A date was picked: check the range, keep it inside the history, redraw. */
+  _customChanged() {
+    const { first, today } = this._customBounds();
+    const msg = this.ov.querySelector('.rg-msg');
+    const from = dayFromIso(this.ov.querySelector('.rg-from').value);
+    const to = dayFromIso(this.ov.querySelector('.rg-to').value);
+    if (from === null || to === null) { msg.textContent = 'Pick both dates.'; return; }
+    if (from > to) { msg.textContent = 'The start date is after the end date.'; return; }
+    const clamp = (x) => Math.max(first, Math.min(x, today));
+    this.custom = { from: clamp(from), to: clamp(to) };
+    this.render();
+  }
+
+  /** Daily values for the days from..to (local midnights), stitched from the
+   *  per-year files; bin: daily up to ~3 months, weekly to ~3 years, then
+   *  monthly. */
+  async _loadRange(from, to) {
+    const names = [];
+    for (let y = new Date(from * 1000).getFullYear(); y <= new Date(to * 1000).getFullYear(); y++) names.push(`daily-${y}`);
+    const parts = (await Promise.all(names.map((n) => this._load(n).catch((e) => { console.warn(e); return null; }))))
+      .filter((p) => p && p.daily && p.daily.days);
+    const keys = new Map();     // reading -> Set of aggregates, or null for a plain array (windDir)
+    for (const p of parts) {
+      for (const [k, v] of Object.entries(p.daily)) {
+        if (k === 'days') continue;
+        if (Array.isArray(v)) { keys.set(k, null); continue; }
+        if (!keys.get(k)) keys.set(k, new Set());
+        Object.keys(v).forEach((a) => keys.get(k).add(a));
+      }
+    }
+    const daily = { days: [] };
+    for (const [k, aggs] of keys) daily[k] = aggs ? Object.fromEntries([...aggs].map((a) => [a, []])) : [];
+    for (const p of parts) {
+      p.daily.days.forEach((day, i) => {
+        if (day < from || day > to) return;
+        daily.days.push(day);
+        for (const [k, aggs] of keys) {
+          const src = p.daily[k];
+          if (!aggs) daily[k].push(Array.isArray(src) ? src[i] ?? null : null);
+          else for (const a of aggs) daily[k][a].push(src && src[a] ? src[a][i] ?? null : null);
+        }
+      });
+    }
+    const stop = midnight(to, 1);
+    const n = Math.round((stop - from) / 86400);
+    return { start: from, stop, daily, bin: n <= 92 ? 'day' : n <= 1100 ? 'week' : 'month' };
+  }
+
   _build() {
     const ov = el('div', 'overlay');
     ov.hidden = true;
@@ -620,6 +757,7 @@ export class HistoryDialog {
         <button type="button" role="tab" data-range="week">7 days</button>
         <button type="button" role="tab" data-range="month">30 days</button>
         <button type="button" role="tab" data-range="year">Year</button>
+        <button type="button" role="tab" data-range="custom">Custom</button>
       </div>
       <button type="button" class="icon-btn dlg-close" aria-label="Close history">
         <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 4l10 10M14 4L4 14"/></svg>
@@ -627,6 +765,11 @@ export class HistoryDialog {
     </div>
   </div>
   <div class="dlg-chart">
+    <div class="range-ctl" hidden>
+      <label>From <input type="date" class="rg-from" required></label>
+      <label>To <input type="date" class="rg-to" required></label>
+      <span class="rg-msg muted small" role="status"></span>
+    </div>
     <div class="chart-top"><span class="chart-sub"></span><div class="legend"></div></div>
     <div class="chart-wrap">
       <div class="ylabels mono"></div>
@@ -684,6 +827,7 @@ export class HistoryDialog {
       if (b) { this.range = b.dataset.range; this.render(); }
     });
     ov.querySelector('#noaa-sel').addEventListener('change', () => this._showNoaa());
+    for (const inp of ov.querySelectorAll('.range-ctl input')) inp.addEventListener('change', () => this._customChanged());
     const wrap = ov.querySelector('.chart-svg-wrap');
     wrap.addEventListener('pointermove', (e) => this._hover(e));
     wrap.addEventListener('pointerdown', (e) => this._hover(e));
@@ -761,11 +905,14 @@ export class HistoryDialog {
     q('.alm-h').textContent = `Almanac · ${view.title}`;
     for (const b of this.ov.querySelectorAll('[data-range]')) b.setAttribute('aria-selected', String(b.dataset.range === this.range));
     this.updateHeader();
+    const custom = this.range === 'custom';
+    q('.range-ctl').hidden = !custom;
+    if (custom) this._syncCustom();
     const token = Symbol('render');
     this.token = token;
     let chart;
     try {
-      let data = await this._load(this.range);
+      let data = custom ? await this._loadRange(this.custom.from, this.custom.to) : await this._load(this.range);
       if (view.fire) data = await this._fireData(data);
       if (this.range === 'day' || this.range === 'week') chart = dayChart(view, data, this.cfg, this.range === 'week');
       else chart = periodChart(view, data, this.range, this.cfg);
@@ -799,7 +946,7 @@ export class HistoryDialog {
       return;
     }
     if (!view.fire) return;
-    const period = this.range === 'month' || this.range === 'year';
+    const period = this.range === 'month' || this.range === 'year' || this.range === 'custom';
     const rows = FIRE_LEVELS.slice().reverse().map((l) => `
       <div class="fx-row"><span class="fx-chip" style="background:${l.color};color:${l.ink}">${l.name}</span>
         <span class="fx-range mono">${l.range}</span><span>${l.advice}</span></div>`).join('');
@@ -878,12 +1025,16 @@ export class HistoryDialog {
     if (c.marker) {
       ml.textContent = c.marker.label;
       ml.style.left = `${c.marker.x / 8}%`;
+      // near the right edge the label sits left of its line, clear of the axis
+      ml.classList.toggle('flip', c.marker.x / 8 > 60);
     }
     svg.setAttribute('aria-label', `${view.title} chart, ${c.sub}`);
     q('.ylabels').replaceChildren(...(c.yLabels || []).map((t) => el('span', '', t)));
-    q('.xlabels').classList.toggle('dense', (c.xLabels || []).length > 7);
+    // phones: every other label when they're crowded ('Mon 26' day names always are)
+    q('.xlabels').classList.toggle('dense', (c.xLabels || []).length > 6 || this.range === 'week');
     q('.xlabels').replaceChildren(...(c.xLabels || []).map((x) => {
-      const s = el('span', '', x.label);
+      // centred on its point, except one at the very left edge (left-aligned)
+      const s = el('span', x.pct === 0 ? 'edge' : '', x.label);
       s.style.left = `${x.pct}%`;
       return s;
     }));
