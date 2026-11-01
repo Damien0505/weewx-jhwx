@@ -31,6 +31,8 @@ const VIEWS = {
   },
   rain: {
     title: 'Rain', unit: 'mm', dp: 1, sum: true, group: 'rain',
+    // bars = accumulation (left axis); rate = peak rain rate per bin on a second (right) axis
+    rate: { obs: 'rainRate', name: 'Peak rain rate', group: 'rainRate', dp: 1 },
     day: { bars: 'rain', binS: 1800, l1: 'Rain per 30 min', lWeek: 'Rain per 6 hours' },
     period: { bars: ['rain', 'sum'], monthName: 'Daily rain', yearName: 'Weekly rain', yearAgg: 'sum' },
   },
@@ -176,6 +178,30 @@ function buildChart(spec) {
       return `M${x.toFixed(1)} ${Y(v).toFixed(1)} h${bw.toFixed(1)} V${H} h-${bw.toFixed(1)} Z`;
     }).join(' ');
   }
+  // optional second (right) axis: a line on its own scale, 0-based (rain rate)
+  if (spec.r) {
+    const rv = spec.r.v;
+    let rhi = 0;
+    rv.forEach((v) => { if (v !== null && Number.isFinite(v)) rhi = Math.max(rhi, v); });
+    const rsc = niceScale(0, rhi || 1);
+    const Y2 = (v) => H - (v - rsc.y0) / (rsc.y1 - rsc.y0) * H;
+    const rt = spec.r.t;
+    const rg = spec.r.gapS;
+    let rd = '';
+    let rpen = false;
+    for (let i = 0; i < rt.length; i++) {
+      const ok = rv[i] !== null && Number.isFinite(rv[i]);
+      const gap = i > 0 && rg && rt[i] - rt[i - 1] > rg;
+      if (!ok || gap) rpen = false;
+      if (!ok) continue;
+      rd += `${rpen ? 'L' : 'M'}${X(rt[i]).toFixed(1)} ${Y2(rv[i]).toFixed(1)} `;
+      rpen = true;
+    }
+    const rdec = [0, 1, 2].find((d) => Math.abs(rsc.st * 10 ** d - Math.round(rsc.st * 10 ** d)) < 1e-9) ?? 2;
+    const rLabels = [];
+    for (let k = 0; k <= rsc.n; k++) rLabels.push(fmt(rsc.y1 - k * rsc.st, rdec));
+    out.r = { d: rd.trim(), Y: Y2, y2Labels: rLabels, name: spec.r.name, unit: spec.r.unit, dp: spec.r.dp };
+  }
   // dotted mean line per dataset
   const avg = (v) => {
     const ok = v.filter((x) => x !== null && Number.isFinite(x));
@@ -213,6 +239,19 @@ function withUnits(view) {
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const dayTime = (x) => `${WEEKDAYS[new Date(x * 1000).getDay()]} ${fmtTime(x)}`;
+
+/** Add a right-axis line (e.g. rain rate) to a chart spec: convert to the
+ *  display unit, register the series, a legend entry and a hover row.  t must
+ *  line up with the bars' hover points; raw is in the view's native units. */
+function addRateSeries(view, spec, legend, t, raw, gapS) {
+  const g = view.rate.group;
+  const v = raw.map((x) => (x === null || x === undefined ? null : conv(g, x)));
+  const unit = unitLabel(g);
+  const dp = unitDp(g, view.rate.dp);
+  spec.r = { t, v, name: view.rate.name, unit, dp, gapS };
+  legend.push(['var(--rate)', `${view.rate.name} · ${unit}`]);
+  if (spec.hover) spec.hover.rows.push({ name: view.rate.name, color: 'var(--rate)', v, rate: true });
+}
 
 /** Day (5-minute records) or week (30-minute bins) chart. */
 function dayChart(view, day, cfg, week = false) {
@@ -252,6 +291,18 @@ function dayChart(view, day, cfg, week = false) {
       rows: [{ name, color: 'var(--accent)', v: spec.bars.v, bar: true }],
       label: (x) => `${tLabel(x - bin / 2)} – ${fmtTime(x + bin / 2)}`,
     };
+    if (view.rate) {
+      // peak rate within each bar's interval, aligned to the bar centres
+      const vr = new Array(n).fill(null);
+      const rsrc = s[view.rate.obs] || [];
+      s.t.forEach((t, i) => {
+        const rr = rsrc[i];
+        if (rr === null || rr === undefined) return;
+        const k = Math.min(n - 1, Math.floor((t - t0 - (week ? 0 : 1)) / bin));
+        vr[k] = Math.max(vr[k] === null ? 0 : vr[k], rr);
+      });
+      addRateSeries(view, spec, legend, spec.bars.t.map((x) => x + bin / 2), vr, bin * 2.5);
+    }
   } else {
     spec.lines = [{ t: s.t, v: view.cv(s[view.day.line] || []), cls: 'l1' }];
     legend.push(['var(--accent)', view.day.l1]);
@@ -324,6 +375,13 @@ function periodChart(view, data, range, cfg) {
       rows: [{ name: yearly ? p.yearName : p.monthName, color: 'var(--accent)', v: vals, bar: true }],
       label: (x) => dayLabel(x - slotS / 2),
     };
+    if (view.rate) {
+      // daily (month) or weekly (year) peak rate, in native units for addRateSeries
+      let rrRaw = (d[view.rate.obs] && d[view.rate.obs].max) || d.days.map(() => null);
+      let rt = d.days;
+      if (yearly) ({ t: rt, v: rrRaw } = weekly(d.days, rrRaw, 'max'));
+      addRateSeries(view, spec, legend, rt.map((x) => x + slotS / 2), rrRaw, slotS * 2.5);
+    }
   } else {
     const lo = get(p.band[0], p.band[1]);
     const hi = p.band[3] ? get(p.band[3], p.band[4]) : get(p.band[0], p.band[2]);
@@ -371,6 +429,10 @@ function periodChart(view, data, range, cfg) {
 
 function finishChart(chart, view, spec, legend, xl, sub, cfg) {
   if (!chart) return { empty: true, sub, legend };
+  // the rate hover row reads off the second axis and its own unit
+  if (chart.r && spec.hover) {
+    for (const row of spec.hover.rows) if (row.rate) { row.Y = chart.r.Y; row.unit = chart.r.unit; row.dp = chart.r.dp; }
+  }
   // summary chips
   const fmtU = (v) => `${fmt(v, view.dp)} ${view.unit}`;
   let stats = [];
@@ -568,6 +630,7 @@ export class HistoryDialog {
             <path class="c-grid" vector-effect="non-scaling-stroke"/>
             <path class="c-band"/><path class="c-area"/><path class="c-bars"/>
             <path class="c-line2" vector-effect="non-scaling-stroke"/>
+            <path class="c-rate" vector-effect="non-scaling-stroke"/>
             <path class="c-line" vector-effect="non-scaling-stroke"/>
             <path class="c-marker" vector-effect="non-scaling-stroke"/>
             <path class="c-mean" vector-effect="non-scaling-stroke"/>
@@ -580,6 +643,7 @@ export class HistoryDialog {
         </div>
         <div class="xlabels mono"></div>
       </div>
+      <div class="y2labels mono" aria-hidden="true"></div>
     </div>
     <div class="stats"></div>
   </div>
@@ -786,6 +850,9 @@ export class HistoryDialog {
     set('.c-line', l1 && l1.d);
     set('.c-line2', l2 && l2.d);
     svg.querySelector('.c-line2').classList.toggle('dash', Boolean(c.dash2));
+    set('.c-rate', c.r && c.r.d);
+    q('.chart-wrap').classList.toggle('has-r', Boolean(c.r));
+    q('.y2labels').replaceChildren(...((c.r && c.r.y2Labels) || []).map((t) => el('span', '', t)));
     set('.c-marker', c.marker ? `M${c.marker.x.toFixed(1)} 0 V260` : '');
     const m1 = c.means && c.means[0];
     const m2 = c.means && c.means[1];
@@ -840,7 +907,7 @@ export class HistoryDialog {
     box.querySelector('.c-dots').replaceChildren(...rows.map((row) => {
       const d = el('span', 'c-dot');
       d.style.left = `${xPct}%`;
-      d.style.top = `${Math.max(0, Math.min(100, c.Y(row.val) / H * 100))}%`;
+      d.style.top = `${Math.max(0, Math.min(100, (row.Y || c.Y)(row.val) / H * 100))}%`;
       d.style.background = row.color;
       return d;
     }));
@@ -849,7 +916,9 @@ export class HistoryDialog {
       const line = el('div', 'c-tip-r');
       const sw = el('span', 'sw');
       sw.style.background = row.color;
-      line.append(sw, `${row.name} `, el('strong', 'num', `${fmt(row.val, h.dp)} ${h.unit}${h.suffix ? h.suffix(row.val) : ''}`));
+      const u = row.unit || h.unit;
+      const dp = row.dp ?? h.dp;
+      line.append(sw, `${row.name} `, el('strong', 'num', `${fmt(row.val, dp)} ${u}${!row.rate && h.suffix ? h.suffix(row.val) : ''}`));
       return line;
     }));
     // keep the read-out inside the chart: right of the line, or left near the edge

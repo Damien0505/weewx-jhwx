@@ -11,7 +11,7 @@
 :root {
   --bg: #EDF1F4; --surface: #FFFFFF; --surface2: #F4F7F9; --line: #D6DEE5;
   --text: #12202C; --muted: #55626D; --accent: #1A63C9; --accentSoft: rgba(26, 99, 201, .12);
-  --onAccent: #FFFFFF; --up: #B4470F; --down: #1A63C9; --warm: #E0782E; --cool: #3D8BE0;
+  --onAccent: #FFFFFF; --up: #B4470F; --down: #1A63C9; --warm: #E0782E; --cool: #3D8BE0; --rate: #0E9A86;
   --mapWater: #CADDED; --mapLand: #EEF1EA; --gaugeFace: #F7F9FA; --gaugeTick: #26323D;
   --lcdBg: #C8D5B6; --lcdText: #1C2914; --overlay: rgba(12, 22, 32, .5);
   --moonLit: #E9E4D2; --moonDark: #3A434C;
@@ -23,7 +23,7 @@
 :root[data-theme="dark"] {
   --bg: #0A1016; --surface: #121B24; --surface2: #17222D; --line: #25323F;
   --text: #E4EBF1; --muted: #95A4B1; --accent: #62A9FF; --accentSoft: rgba(98, 169, 255, .16);
-  --onAccent: #06111C; --up: #FF9D57; --down: #62A9FF; --warm: #FF9D57; --cool: #62A9FF;
+  --onAccent: #06111C; --up: #FF9D57; --down: #62A9FF; --warm: #FF9D57; --cool: #62A9FF; --rate: #3FD0BA;
   --mapWater: #0F2233; --mapLand: #1A262F; --gaugeFace: #141D26; --gaugeTick: #C9D4DE;
   --lcdBg: #1E2A1A; --lcdText: #A8E07A; --overlay: rgba(0, 0, 0, .62);
   --moonDark: #26303A; --shadow: none; --stale: #E0A63A; --offline: #6B7884;
@@ -33,7 +33,7 @@
   :root:not([data-theme="light"]) {
     --bg: #0A1016; --surface: #121B24; --surface2: #17222D; --line: #25323F;
     --text: #E4EBF1; --muted: #95A4B1; --accent: #62A9FF; --accentSoft: rgba(98, 169, 255, .16);
-    --onAccent: #06111C; --up: #FF9D57; --down: #62A9FF; --warm: #FF9D57; --cool: #62A9FF;
+    --onAccent: #06111C; --up: #FF9D57; --down: #62A9FF; --warm: #FF9D57; --cool: #62A9FF; --rate: #3FD0BA;
     --mapWater: #0F2233; --mapLand: #1A262F; --gaugeFace: #141D26; --gaugeTick: #C9D4DE;
     --lcdBg: #1E2A1A; --lcdText: #A8E07A; --overlay: rgba(0, 0, 0, .62);
     --moonDark: #26303A; --shadow: none; --stale: #E0A63A; --offline: #6B7884;
@@ -236,6 +236,12 @@ body.modal-open { overflow: hidden; }
   font-size: 11px; color: var(--muted);
 }
 .ylabels span { height: 0; display: flex; align-items: center; justify-content: flex-end; }
+.y2labels {
+  display: none; flex-direction: column; justify-content: space-between; height: 260px; min-width: 40px;
+  font-size: 11px; color: var(--rate);
+}
+.chart-wrap.has-r .y2labels { display: flex; }
+.y2labels span { height: 0; display: flex; align-items: center; }
 .chart-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .chart-svg-wrap { position: relative; }
 svg.chart { width: 100%; height: 260px; display: block; overflow: visible; }
@@ -244,6 +250,7 @@ svg.chart { width: 100%; height: 260px; display: block; overflow: visible; }
 .c-bars { fill: var(--accent); }
 .c-line { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linejoin: round; }
 .c-line2 { fill: none; stroke: var(--up); stroke-width: 2; stroke-dasharray: 6 4; }
+.c-rate { fill: none; stroke: var(--rate); stroke-width: 2; stroke-linejoin: round; }
 .tile-value .u.band {
   margin-left: 8px; padding: 3px 9px; border-radius: 999px; font-size: 13px; font-weight: 700; white-space: nowrap;
 }
@@ -345,8 +352,8 @@ svg.chart { width: 100%; height: 260px; display: block; overflow: visible; }
   .dlg-head, .dlg-chart, .dlg-alm, .dlg-noaa, .dlg-explain { padding-left: 16px; padding-right: 16px; }
   .fx-row { grid-template-columns: 104px 48px 1fr; gap: 8px; font-size: 13px; }
   .dlg-head h2 { font-size: 22px; }
-  .ylabels { min-width: 36px; }
-  svg.chart, .ylabels { height: 200px; }
+  .ylabels, .y2labels { min-width: 34px; }
+  svg.chart, .ylabels, .y2labels { height: 200px; }
   .alm { min-width: 0; }
   .alm-head { display: none; }
   .alm-row { grid-template-columns: 1fr 1fr; gap: 4px 12px; padding: 10px 0; }

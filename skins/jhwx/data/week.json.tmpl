@@ -10,5 +10,5 @@
   "binding": $J.str($L),
   "start": $J.num($stop - 604800),
   "stop": $J.num($stop),
-  "series": $J.binned($L, ['outTemp', 'dewpoint', 'outHumidity', 'barometer', 'windSpeed', 'windGust', 'rain', 'radiation', 'maxSolarRad', 'UV', 'ET', 'inTemp'] + $J.power_fields, $stop - 604800, $stop, 1800)
+  "series": $J.binned($L, ['outTemp', 'dewpoint', 'outHumidity', 'barometer', 'windSpeed', 'windGust', 'rain', 'rainRate', 'radiation', 'maxSolarRad', 'UV', 'ET', 'inTemp'] + $J.power_fields, $stop - 604800, $stop, 1800)
 }

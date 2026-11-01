@@ -259,7 +259,7 @@ class JhwxHelper(object):
                         acc[f][k].append(v)
         out = {'t': [t0 + k * bin_s for k in range(n)], 'bin': bin_s}
         for f in fields:
-            agg = sum if f in ('rain', 'ET') else max if f == 'windGust' else (lambda a: sum(a) / len(a))
+            agg = sum if f in ('rain', 'ET') else max if f in ('windGust', 'rainRate') else (lambda a: sum(a) / len(a))
             out[f] = [round(agg(a), places) if a else None for a in acc[f]]
         return json.dumps(out, separators=(',', ':'))
 
