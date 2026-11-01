@@ -7,7 +7,7 @@ import { fmt, fmtTime, fmtDate, fmtAge, compassPoint, fmtUL } from './units.js';
 
 // distances/speeds in the viewer's units, rounded for a map read-out
 const dist = (km, step = 1) => fmtUL('distance', Math.round(km / step) * step, 0);
-import { analyseRadar } from './radarstats.js';
+import { analyseRadar, RADAR_LEVELS, DEFAULT_MIN_DBZ } from './radarstats.js';
 import { isobars, ISOBAR_HPA } from './mslp.js';
 import { loadJson } from './data.js';
 
@@ -79,7 +79,8 @@ export class MapsPanel {
     this.lat = cfg.station.latitude;
     this.lon = cfg.station.longitude;
     this.tab = 'radar';
-    this.radar = { frames: [], layers: [], index: 0, playing: true, fetchedAt: null, error: null, stats: null, statsError: null };
+    this.radar = { frames: [], layers: [], index: 0, playing: true, fetchedAt: null, error: null, stats: null, statsError: null,
+      host: null, minDbz: this.radarLevel(), seq: 0 };
     this.quakes = { events: [], fetchedAt: null, error: null, prefs: this.quakePrefs(), seq: 0, timer: null,
       markers: new Map(), sel: null, hl: null, truncated: false };
     this.mslp = { data: null, step: null, error: null, loadedAt: 0, chart: null };
@@ -114,6 +115,7 @@ export class MapsPanel {
       const b = e.target.closest('button[data-tab]');
       if (b) this.show(b.dataset.tab);
     });
+    this.radarLevelControl();
     this.root.querySelector('.rad-play').addEventListener('click', () => {
       this.radar.playing = !this.radar.playing;
       this.renderRadarControls();
@@ -207,6 +209,7 @@ export class MapsPanel {
           for (const l of this.radar.layers) l.addTo(this.map);
           this.setFrame(this.radar.index);
         }
+        this.radar.host = idx.host;
         if (frames.length) this.analyseRadar(idx.host, frames);
       }
       this.radar.fetchedAt = Date.now();
@@ -219,14 +222,45 @@ export class MapsPanel {
     setTimeout(() => this.loadRadar(), RADAR_REFRESH_MS);
   }
 
+  /** Weakest echo the radar facts count (dBZ): this browser's choice, else
+   *  the skin's [[radar]] min_dbz, else light rain. */
+  radarLevel() {
+    const ok = (v) => RADAR_LEVELS.some((l) => l.dbz === v);
+    let saved = null;
+    try { saved = Number(localStorage.getItem('jhwx.radarDbz')); } catch (e) { /* ignore */ }
+    if (ok(saved)) return saved;
+    const conf = Number(this.cfg.radar && this.cfg.radar.min_dbz);
+    return ok(conf) ? conf : DEFAULT_MIN_DBZ;
+  }
+
+  /** The "Count rain from" picker under the radar map. */
+  radarLevelControl() {
+    const sel = this.root.querySelector('.rad-level');
+    if (!sel) return;
+    sel.replaceChildren(...RADAR_LEVELS.map((l) => new Option(l.label, String(l.dbz))));
+    sel.value = String(this.radar.minDbz);
+    sel.addEventListener('change', () => {
+      this.radar.minDbz = Number(sel.value);
+      try { localStorage.setItem('jhwx.radarDbz', sel.value); } catch (e) { /* ignore */ }
+      this.radar.stats = null;          // "checking..." until the new analysis is in
+      this.renderSide();
+      if (this.radar.host && this.radar.frames.length) this.analyseRadar(this.radar.host, this.radar.frames);
+    });
+  }
+
   async analyseRadar(host, frames) {
+    const seq = ++this.radar.seq;
+    let stats = null;
+    let err = null;
     try {
-      this.radar.stats = await analyseRadar(host, frames, this.lat, this.lon);
-      this.radar.statsError = null;
+      stats = await analyseRadar(host, frames, this.lat, this.lon, this.radar.minDbz);
     } catch (e) {
       console.warn(e);
-      this.radar.statsError = `radar analysis ${e.message || e}`;
+      err = `radar analysis ${e.message || e}`;
     }
+    if (seq !== this.radar.seq) return;   // the level changed meanwhile: a newer run owns the result
+    this.radar.stats = stats;
+    this.radar.statsError = err;
     if (this.tab === 'radar') { this.overlay.clearLayers(); this.drawNearestEcho(); }
     this.renderSide();
   }
@@ -828,7 +862,9 @@ export class MapsPanel {
         facts.append(row);
       }
       side.append(facts);
-      add('side-note muted', 'Movement and arrival are estimates from echo motion over the last 30 minutes. '
+      const lvl = RADAR_LEVELS.find((l) => l.dbz === this.radar.minDbz) || RADAR_LEVELS[0];
+      add('side-note muted', `Counting ${lvl.short} on the radar${lvl.dbz > RADAR_LEVELS[0].dbz ? ` (${lvl.dbz} dBZ and up)` : ''}. `
+        + 'Movement is tracked on every radar echo; it and the arrival time are estimates from the last 30 minutes. '
         + 'Radar can show echoes that don’t reach the ground. Last hour in 10-minute frames; tiles stop at zoom 7.');
       add('side-age mono muted', this.radar.error || this.radar.statsError || `RainViewer · ${age(this.radar)}`);
     } else if (this.tab === 'mslp') {

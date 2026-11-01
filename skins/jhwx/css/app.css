@@ -669,3 +669,10 @@ button.fc-day:hover { border-color: var(--accent); }
   :root:not([data-theme="light"]) .range-ctl input[type="date"] { color-scheme: dark; }
 }
 .rg-msg:empty { display: none; }
+
+/* ---------- radar: which echoes count as rain near the station ---------- */
+.rad-lvl { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.rad-lvl select {
+  min-height: 36px; max-width: 100%; padding: 0 8px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--surface2); color: var(--text); font: inherit; font-size: 13px;
+}

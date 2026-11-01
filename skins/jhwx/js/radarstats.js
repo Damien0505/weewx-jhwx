@@ -4,12 +4,15 @@
 //
 // Estimates only: free-tier tiles stop at zoom 7, the analysis runs at zoom 6
 // (~2 km per pixel here), and a radar echo is not always rain at the ground.
+//
+// Only echoes at or above a chosen radar reflectivity count (minDbz): each
+// pixel's colour is looked up in RainViewer's Universal Blue table to get its
+// dBZ, so drizzle and virga can be left out.
 
 import { distBearing } from './maps.js';
 
 const ZOOM = 6;
 const RADIUS_KM = 250;          // area analysed around the station
-const ALPHA_MIN = 100;          // pixel counts as an echo above this opacity
 const NEIGHBOURS_MIN = 4;       // ... and with this many echo neighbours (drops speckle)
 const STATION_KM = 4;           // "rain at the station": an echo this close
 const ARRIVAL_KM = 6;           // an echo passing this close counts as arriving
@@ -19,6 +22,45 @@ const MAX_SPEED_KMH = 150;
 const TIMEOUT_MS = 15000;
 
 const TILE = 256;
+
+// RainViewer "Universal Blue" (colour scheme 2, rain), one RGBA hex per dBZ
+// step from UB_FIRST_DBZ upward; from rainviewer.com/files/rainviewer_api_colors_table.csv
+const UB_FIRST_DBZ = -10;
+const UB_RAIN = '6361591466635a1969665c1e6c685d246f6b5f29726e612e75706234787364397c75653e7f786744827b6949857d6a4e88806c548b826d598e856f5e928871649e93756eaa9e7978b6a97e82c2b4828ccec08796d2c48ba0d6c88faadacc93b4ded097be88ddeeff6cd1ebff51c5e8ff36bae5ff1baee2ff00a3e0ff009ad5ff0091caff0088bfff007fb4ff0077aaff0070a3ff00699cff006295ff005b8eff005588ff005180ff004e78ff004a70ff004768ffffee00ffffe000ffffd200ffffc500ffffb700ffffaa00ffff9f00ffff9500ffff8b00ffff8100ffff4400fff23600ffe62800ffd91b00ffcd0d00ffc10000ffa80000ff8f0000ff760000ff5d0000ffffaaffffff9fffffff95ffffff8bffffff81ffffff77ffffff6cffffff62ffffff58ffffff4effffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff';
+
+// Which echoes count, by reflectivity (dBZ ~ rain rate by Marshall-Palmer).
+// 6 dBZ matches the old opacity rule (every visible echo).
+export const RADAR_LEVELS = [
+  { dbz: 6, label: 'Any echo', short: 'any echo' },
+  { dbz: 20, label: 'Light rain or heavier (20+ dBZ)', short: 'light rain or heavier' },
+  { dbz: 30, label: 'Moderate rain or heavier (30+ dBZ)', short: 'moderate rain or heavier' },
+  { dbz: 40, label: 'Heavy rain (40+ dBZ)', short: 'heavy rain' },
+];
+export const DEFAULT_MIN_DBZ = 20;
+const TRACK_DBZ = 6;            // motion is tracked on every visible echo
+
+const UB = [];                  // [r, g, b, a, dBZ]
+for (let k = 0; k < UB_RAIN.length; k += 8) {
+  const c = [0, 2, 4, 6].map((o) => parseInt(UB_RAIN.slice(k + o, k + o + 2), 16));
+  UB.push([...c, UB_FIRST_DBZ + k / 8]);
+}
+const dbzCache = new Map();
+
+/** dBZ of a tile pixel: the nearest Universal Blue colour (canvas reads of
+ *  translucent pixels can be a step or two off), or -32 for no echo. */
+function dbzOf(r, g, b, a) {
+  if (a === 0) return -32;
+  const key = ((r << 24) | (g << 16) | (b << 8) | a) >>> 0;
+  let v = dbzCache.get(key);
+  if (v !== undefined) return v;
+  let best = Infinity;
+  for (const c of UB) {
+    const d = (c[0] - r) ** 2 + (c[1] - g) ** 2 + (c[2] - b) ** 2 + (c[3] - a) ** 2;
+    if (d < best) { best = d; v = c[4]; }
+  }
+  dbzCache.set(key, v);
+  return v;
+}
 
 function worldPx(lat, lon, z) {
   const n = TILE * 2 ** z;
@@ -47,8 +89,9 @@ function loadImage(url) {
   });
 }
 
-/** Echo mask (Uint8Array, 1 = echo) for one frame over the tile block. */
-async function frameMask(host, frame, block) {
+/** Echo masks for one frame over the tile block, one per dBZ level in
+ *  `levels` ({mask: Uint8Array (1 = echo of at least that level), w, h}). */
+async function frameMasks(host, frame, block, levels) {
   const { tx0, ty0, nx, ny } = block;
   const cv = document.createElement('canvas');
   cv.width = nx * TILE;
@@ -65,19 +108,26 @@ async function frameMask(host, frame, block) {
   const { data } = ctx.getImageData(0, 0, cv.width, cv.height);
   const w = cv.width;
   const h = cv.height;
-  const raw = new Uint8Array(w * h);
-  for (let k = 0; k < w * h; k++) raw[k] = data[k * 4 + 3] > ALPHA_MIN ? 1 : 0;
-  const mask = new Uint8Array(w * h);
-  for (let y = 1; y < h - 1; y++) {
-    for (let x = 1; x < w - 1; x++) {
-      const k = y * w + x;
-      if (!raw[k]) continue;
-      const n = raw[k - w - 1] + raw[k - w] + raw[k - w + 1] + raw[k - 1] + raw[k + 1]
-        + raw[k + w - 1] + raw[k + w] + raw[k + w + 1];
-      if (n >= NEIGHBOURS_MIN) mask[k] = 1;
-    }
+  const dbz = new Int8Array(w * h);
+  for (let k = 0; k < w * h; k++) {
+    const o = k * 4;
+    dbz[k] = data[o + 3] ? dbzOf(data[o], data[o + 1], data[o + 2], data[o + 3]) : -32;
   }
-  return { mask, w, h };
+  return levels.map((lvl) => {
+    const raw = new Uint8Array(w * h);
+    for (let k = 0; k < w * h; k++) raw[k] = dbz[k] >= lvl ? 1 : 0;
+    const mask = new Uint8Array(w * h);
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const k = y * w + x;
+        if (!raw[k]) continue;
+        const n = raw[k - w - 1] + raw[k - w] + raw[k - w + 1] + raw[k - 1] + raw[k + 1]
+          + raw[k + w - 1] + raw[k + w] + raw[k + w + 1];
+        if (n >= NEIGHBOURS_MIN) mask[k] = 1;
+      }
+    }
+    return { mask, w, h };
+  });
 }
 
 /** Sum the mask into b x b blocks (fraction of echo per block). */
@@ -120,9 +170,10 @@ function bestShift(a, b, cx, cy, span) {
 /**
  * @param {string} host  RainViewer host
  * @param {Array<{time:number,path:string}>} frames  past frames, oldest first
- * @returns {Promise<object>} { time, echoes, nearest, atStation, motion, arrival }
+ * @param {number} minDbz  weakest echo that counts (RADAR_LEVELS)
+ * @returns {Promise<object>} { time, minDbz, echoes, nearest, atStation, motion, arrival }
  */
-export async function analyseRadar(host, frames, lat, lon) {
+export async function analyseRadar(host, frames, lat, lon, minDbz = DEFAULT_MIN_DBZ) {
   const now = frames[frames.length - 1];
   // the frame closest to 30 minutes before the newest one
   let prev = null;
@@ -141,8 +192,11 @@ export async function analyseRadar(host, frames, lat, lon) {
   const sx = st.x - tx0 * TILE;   // station in block pixels
   const sy = st.y - ty0 * TILE;
 
-  const cur = await frameMask(host, now, block);
-  const out = { time: now.time, echoes: 0, nearest: null, atStation: false, motion: null, arrival: null };
+  // the chosen level decides which echoes are rain (nearest, arrival); motion
+  // is tracked on every echo, as sparse strong cells form and fade too fast
+  // to follow reliably over 30 minutes
+  const [cur, curAll] = await frameMasks(host, now, block, [minDbz, TRACK_DBZ]);
+  const out = { time: now.time, minDbz, echoes: 0, nearest: null, atStation: false, motion: null, arrival: null };
 
   // nearest echo and echo list (km east/south of the station) within the radius
   const pts = [];
@@ -166,14 +220,16 @@ export async function analyseRadar(host, frames, lat, lon) {
     out.nearest = { ...distBearing(lat, lon, p.lat, p.lon), lat: p.lat, lon: p.lon };
     out.atStation = best <= STATION_KM;
   }
-  if (!prev || out.echoes < MIN_ECHOES) return out;
+  let tracked = 0;
+  for (let k = 0; k < curAll.mask.length; k++) tracked += curAll.mask[k];
+  if (!prev || !out.echoes || tracked < MIN_ECHOES) return out;
 
   // motion: cross-correlate the older frame onto the newest, coarse then fine
-  const old = await frameMask(host, prev, block);
+  const [old] = await frameMasks(host, prev, block, [TRACK_DBZ]);
   const dt = now.time - prev.time;
   const span = Math.ceil(MAX_SPEED_KMH * dt / 3600 / kmPerPx);
-  const c4 = bestShift(blocks(old, 4), blocks(cur, 4), 0, 0, Math.ceil(span / 4));
-  const f2 = bestShift(blocks(old, 2), blocks(cur, 2), c4.dx * 2, c4.dy * 2, 2);
+  const c4 = bestShift(blocks(old, 4), blocks(curAll, 4), 0, 0, Math.ceil(span / 4));
+  const f2 = bestShift(blocks(old, 2), blocks(curAll, 2), c4.dx * 2, c4.dy * 2, 2);
   if (f2.score <= 0) return out;
   const vx = f2.dx * 2 * kmPerPx / dt;     // km/s east
   const vy = f2.dy * 2 * kmPerPx / dt;     // km/s south

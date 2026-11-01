@@ -29,6 +29,10 @@
     "units": "US"
   },
   "options": $J.client_options(),
+#set $radar = $Extras.get('radar', {})
+  "radar": {
+    "min_dbz": $J.num(int($radar.get('min_dbz', 20)))
+  },
   "history_start": $J.num($J.history_start()),
   "cutover": $J.num($J.cutover),
   "record_cutoff": {

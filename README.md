@@ -27,7 +27,7 @@ A WeeWX 5 skin plus a static, vanilla-JS dashboard:
   from the station's own rain and temperature history, shown in AFDRS-style bands. Not an
   official rating.
 - **7-day forecast** (Open-Meteo): click a day, or the hero's outlook line, for its **hourly
-  forecast** (temperature and feels-like, chance and amount of rain, wind, gusts, UV); **rain radar** (RainViewer) with nearest echo, movement and a
+  forecast** (temperature and feels-like, chance and amount of rain, wind, gusts, UV); **rain radar** (RainViewer) with nearest echo (light rain or heavier by default; viewers can choose), movement and a
   rough arrival estimate; a **pressure chart** (isobars, highs and lows, 3 days ahead);
   **earthquakes** (EMSC: pick the look-back and the M4+ and M2+ ranges; the list follows the map
   view, and a dot or list entry opens its details); **lightning** (optional, Xweather): strikes within 100 km over the last
@@ -193,6 +193,7 @@ skin's `[Extras]`; a restart picks them up.
 | `[[power]] battery_low`, `battery_fair` | 2.4, 2.8 | below these the battery reads Low / Fair |
 | `[[fire_danger]] enable` | `false` | indicative fire danger tile, Now-card badge and history (Australian method) |
 | `[[fire_danger]] info_name`, `info_url`, `info_extra` | blank | where to check official ratings, e.g. `CFA`, its URL, `or the VicEmergency app` |
+| `[[radar]] min_dbz` | 20 | weakest radar echo counted as rain near the station (6 any, 20 light, 30 moderate, 40 heavy); viewers can change it under the map |
 | `[[mslp]] enable` | `true` | pressure chart (WeeWX fetches the grid, see above) |
 | `[[mslp]] bounds` | 42 x 78 degrees centred on the station | `north, south, west, east` |
 | `[[mslp]] chart_name`, `chart_url` | blank | link to an official analysed chart |
