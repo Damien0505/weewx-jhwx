@@ -469,7 +469,9 @@ function periodChart(view, data, range, cfg) {
     spec.band = t.map((x, i) => [x, L.v[i], Hh[i]]);
     spec.lines = [{ t, v: M, cls: 'l1' }];
     spec.gapS = slotS * 1.5;
-    legend.push(['var(--accentSoft)', p.bandName], ['var(--accent)', p.lineName]);
+    // "Daily high–low" becomes weekly / monthly when the points are bins
+    const bandName = bin === 'day' ? p.bandName : p.bandName.replace(/^Daily/, bin === 'week' ? 'Weekly' : 'Monthly');
+    legend.push(['var(--accentSoft)', bandName], ['var(--accent)', p.lineName]);
     // wind: the band's low edge is the average itself, so list it once
     const rows = [{ name: p.band[3] ? 'Max gust' : 'High', color: 'var(--muted)', v: Hh },
       { name: p.lineName, color: 'var(--accent)', v: M }];
