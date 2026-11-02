@@ -9,7 +9,7 @@ on a default install).  The web server still has to serve that directory at
 
 from weecfg.extension import ExtensionInstaller
 
-VERSION = '0.1.0'
+VERSION = '0.2.0'
 
 
 def loader():
