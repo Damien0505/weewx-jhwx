@@ -2,7 +2,7 @@
 // Also supplies current cloud cover (night-time conditions icon), today's
 // outlook line, tomorrow's UV maximum and the hourly forecast (hourly.js).
 
-import { fmtAge, compassPoint, fmtUL, fmtDeg, unitPref } from './units.js';
+import { fmtAge, compassPoint, fmtUL, fmtDeg, unitPref, uvCategory, fmt } from './units.js';
 import { icon } from './icons.js';
 
 const URL_BASE = 'https://api.open-meteo.com/v1/forecast';
@@ -173,7 +173,8 @@ export function renderForecast(root, fc) {
         <span class="fc-hi num"></span>
       </div>
       <div class="fc-rain"><span class="fc-pop"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.5C6 1.5 2.5 5.6 2.5 7.6a3.5 3.5 0 0 0 7 0C9.5 5.6 6 1.5 6 1.5z" style="fill:#2F7BD8"/></svg><span></span></span><span class="muted fc-mm"></span></div>
-      <div class="muted fc-wind"></div>`;
+      <div class="muted fc-wind"></div>
+      <div class="fc-uv"><i class="fc-uvdot" aria-hidden="true"></i><span class="muted">UV</span> <b class="num"></b> <span class="muted fc-uvcat"></span></div>`;
     el.querySelector('.fc-name').textContent = i === 0 ? 'Today' : dayFmt.format(dt);
     el.querySelector('.fc-date').textContent = dateFmt.format(dt);
     el.querySelector('.fc-desc').textContent = text;
@@ -182,7 +183,13 @@ export function renderForecast(root, fc) {
     el.querySelector('.fc-pop span').textContent = Number.isFinite(d.pop) ? `${d.pop}%` : '—';
     el.querySelector('.fc-mm').textContent = rain;
     el.querySelector('.fc-wind').textContent = `Wind ${compassPoint(d.dir)} ${fmtUL('wind', d.wind, 0)}`;
-    el.setAttribute('aria-label', `${i === 0 ? 'Today' : dayFmt.format(dt)}: ${text}, ${fmtDeg(d.min, 0)} to ${fmtDeg(d.max, 0)}. Show hourly forecast`);
+    const uvOk = Number.isFinite(d.uv);
+    const cat = uvCategory(uvOk ? Math.round(d.uv) : null);   // the category of the number shown
+    el.querySelector('.fc-uv b').textContent = uvOk ? fmt(d.uv, 0) : '—';
+    el.querySelector('.fc-uvcat').textContent = cat;
+    el.querySelector('.fc-uv').dataset.cat = cat.toLowerCase().replace(' ', '-');
+    el.setAttribute('aria-label', `${i === 0 ? 'Today' : dayFmt.format(dt)}: ${text}, ${fmtDeg(d.min, 0)} to ${fmtDeg(d.max, 0)}`
+      + `${uvOk ? `, UV max ${fmt(d.uv, 0)} ${cat}` : ''}. Show hourly forecast`);
     return el;
   }));
 }

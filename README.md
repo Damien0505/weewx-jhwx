@@ -26,7 +26,7 @@ A WeeWX 5 skin plus a static, vanilla-JS dashboard:
   temperature, humidity and 10-minute wind, with a drought factor (KBDI + Griffiths) computed
   from the station's own rain and temperature history, shown in AFDRS-style bands. Not an
   official rating.
-- **7-day forecast** (Open-Meteo): click a day, or the hero's outlook line, for its **hourly
+- **7-day forecast** (Open-Meteo, with each day's maximum UV): click a day, or the hero's outlook line, for its **hourly
   forecast** (temperature and feels-like, chance and amount of rain, wind, gusts, UV); **rain radar** (RainViewer) with nearest echo (light rain or heavier by default; viewers can choose)
   and the rain heading for the station: each rain cell tracked over the last hour of frames, its projected path,
   arrival time or closest pass, and whether it is strengthening or weakening; a **pressure chart** (isobars, highs and lows, 3 days ahead);
@@ -64,7 +64,8 @@ All generated JSON is **metric** (°C, hPa, km/h, mm). Each file carries a `"uni
 that the front end checks before it uses the numbers. MQTT loop packets are in US units
 and are converted in one place, `js/units.js`.
 
-The browser also fetches directly from Open-Meteo (forecast), RainViewer, EMSC and
+The browser also fetches directly from Open-Meteo (forecast, and the 15-minute modelled UV
+drawn as a dashed line on the UV history's Day and 7-day charts), RainViewer, EMSC and
 OpenStreetMap tiles. The database is never exposed.
 
 The pressure chart is the one thing WeeWX itself downloads: Open-Meteo counts every grid point

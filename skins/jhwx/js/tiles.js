@@ -246,7 +246,7 @@ export function tileDefs(cfg) {
           })()],
           ['Tomorrow (forecast)', (() => {
             const d = R.forecast && R.forecast.day(1);
-            return d && Number.isFinite(d.uv) ? `${fmt(d.uv, 0)} · ${uvCategory(d.uv)}` : '—';
+            return d && Number.isFinite(d.uv) ? `${fmt(d.uv, 0)} · ${uvCategory(Math.round(d.uv))}` : '—';
           })()],
         ];
       },

@@ -48,7 +48,7 @@ const VIEWS = {
   },
   uv: {
     title: 'UV index', unit: 'UVI', dp: 1, area: true,
-    day: { line: 'UV', l1: 'UV index' },
+    day: { line: 'UV', l1: 'UV index', model: 'uv_index', l2: 'Forecast (Open-Meteo)', dash2: true },
     period: { bars: ['UV', 'max'], monthName: 'Daily max UV', yearName: 'Weekly max UV', yearAgg: 'max' },
   },
   // cap / batt: filled in from config.json options.power (see powerView)
@@ -267,6 +267,50 @@ function addRateSeries(view, spec, legend, t, raw, gapS) {
 }
 
 /** Day (5-minute records) or week (30-minute bins) chart. */
+/** Values of a {t, v} series (t ascending) at each of `ts` + off seconds,
+ *  linearly interpolated; null outside it or next to a missing value. */
+function sampleSeries(m, ts, off) {
+  let j = 1;
+  return ts.map((t0) => {
+    const t = t0 + off;
+    while (j < m.t.length && m.t[j] < t) j++;
+    if (j >= m.t.length || m.t[j - 1] > t) return null;
+    const a = m.v[j - 1];
+    const b = m.v[j];
+    if (a === null || b === null || a === undefined || b === undefined) return null;
+    return a + (b - a) * (t - m.t[j - 1]) / (m.t[j] - m.t[j - 1]);
+  });
+}
+
+// Open-Meteo 15-minute model values for the last 7 days and today, for the
+// dashed forecast line on a day/week chart (view.day.model names the variable)
+const MODEL_URL = 'https://api.open-meteo.com/v1/forecast';
+const MODEL_TTL_MS = 30 * 60 * 1000;
+const modelCache = {};
+
+async function loadModel(cfg, variable) {
+  const c = modelCache[variable];
+  if (c && Date.now() - c.at < MODEL_TTL_MS) return c.data;
+  const p = new URLSearchParams({
+    latitude: cfg.station.latitude, longitude: cfg.station.longitude, minutely_15: variable,
+    past_days: '7', forecast_days: '1', timeformat: 'unixtime', timezone: 'GMT',
+  });
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 15000);
+  try {
+    const r = await fetch(`${MODEL_URL}?${p}`, { signal: ctl.signal });
+    if (!r.ok) throw new Error(`Open-Meteo HTTP ${r.status}`);
+    const d = await r.json();
+    const m = d.minutely_15;
+    if (!m || !Array.isArray(m.time) || !Array.isArray(m[variable])) throw new Error('Open-Meteo: unexpected response');
+    const data = { t: m.time, v: m[variable] };
+    modelCache[variable] = { at: Date.now(), data };
+    return data;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function dayChart(view, day, cfg, week = false) {
   const s = day.series;
   const t0 = day.start;
@@ -320,9 +364,14 @@ function dayChart(view, day, cfg, week = false) {
     spec.lines = [{ t: s.t, v: view.cv(s[view.day.line] || []), cls: 'l1' }];
     legend.push(['var(--accent)', view.day.l1]);
     spec.hover = { t: s.t, rows: [{ name: view.day.l1, color: 'var(--accent)', v: spec.lines[0].v }], label: tLabel };
-    if (view.day.line2 && s[view.day.line2]) {
+    // second line: another archive field, or a model series (day.model) read at
+    // the middle of each record's interval - a 5-minute record closes at t,
+    // a 30-minute week bin opens at t
+    const ref = view.day.line2 && s[view.day.line2] ? s[view.day.line2]
+      : view.day.model && day.model ? sampleSeries(day.model, s.t, week ? 900 : -150) : null;
+    if (ref) {
       const color = view.day.dash2 ? 'var(--muted)' : 'var(--up)';
-      spec.lines.push({ t: s.t, v: view.cv(s[view.day.line2]), cls: 'l2', noMean: !!view.day.dash2 });
+      spec.lines.push({ t: s.t, v: view.cv(ref), cls: 'l2', noMean: !!view.day.dash2 });
       legend.push([color, view.day.l2]);
       spec.hover.rows.push({ name: view.day.l2, color, v: spec.lines[1].v });
     }
@@ -916,7 +965,17 @@ export class HistoryDialog {
     try {
       let data = custom ? await this._loadRange(this.custom.from, this.custom.to) : await this._load(this.range);
       if (view.fire) data = await this._fireData(data);
-      if (this.range === 'day' || this.range === 'week') chart = dayChart(view, data, this.cfg, this.range === 'week');
+      const dayish = this.range === 'day' || this.range === 'week';
+      if (dayish && view.day.model) {
+        // the chart still draws without the model line if Open-Meteo is out
+        try {
+          data = { ...data, model: await loadModel(this.cfg, view.day.model) };
+        } catch (e) {
+          console.warn(e);
+        }
+        if (this.token !== token) return;
+      }
+      if (dayish) chart = dayChart(view, data, this.cfg, this.range === 'week');
       else chart = periodChart(view, data, this.range, this.cfg);
     } catch (e) {
       console.warn(e);

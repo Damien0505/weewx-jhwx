@@ -1,7 +1,7 @@
 // "Now" hero card: conditions icon + text, big temperature, trend sentence,
-// key stats and the archive timing line.
+// key stats (incl. UV index) and the archive timing line.
 
-import { fmtTime, compassPoint, fmtSigned, fmtU, fmtUL, fmtDeg, conv, unitDp, unitLabel } from './units.js';
+import { fmt, fmtTime, compassPoint, fmtSigned, fmtU, fmtUL, fmtDeg, conv, unitDp, unitLabel, uvCategory } from './units.js';
 import { icon } from './icons.js';
 import { pressureTendency, TREND_RULES } from './trend.js';
 import { currentConditions } from './conditions.js';
@@ -38,6 +38,13 @@ function cloudBase(t, td) {
   const m = Math.max(0, t - td) * 124.7;
   if (m < 30) return 'At ground level';
   return `${Math.round(conv('height', m) / 10) * 10} ${unitLabel('height')}`;
+}
+
+/** '6.2 · High': the category of the number as shown (one decimal). */
+function uvText(uv) {
+  if (!Number.isFinite(uv)) return '—';
+  const v = Math.round(uv * 10) / 10;
+  return `${fmt(v, 1)} · ${uvCategory(v)}`;
 }
 
 export function renderHero(root, R, trends, cfg, sunAlt, cloud) {
@@ -93,6 +100,8 @@ export function renderHero(root, R, trends, cfg, sunAlt, cloud) {
     ['Gust', fmtUL('wind', R.get('windGust').v, 1)],
     ['Pressure', `${fmtUL('pressure', R.get('barometer').v, 1)}${d3 === null ? '' : ` · ${pressureTendency(d3).toLowerCase()}`}`],
     ['Cloud base', cloudBase(R.get('outTemp').v, R.get('dewpoint').v)],
+    // in this column, which has no sub-lines, so the two stay about level
+    ['UV index', uvText(R.get('UV').v)],
   ]];
   const grid = q('.hero-stats');
   if (grid.childElementCount !== cols.length) {
