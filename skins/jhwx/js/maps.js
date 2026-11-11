@@ -57,12 +57,15 @@ export function distBearing(lat1, lon1, lat2, lon2) {
   return { dist, bearing: (Math.atan2(y, x) * 180 / Math.PI + 360) % 360 };
 }
 
-async function getJson(url) {
+// `empty`: what a 204 No Content reply means (FDSN services such as EMSC
+// answer a search with no matches that way, with no body to parse)
+async function getJson(url, empty) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
   try {
     const r = await fetch(url, { signal: ctl.signal });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    if (r.status === 204 && empty !== undefined) return empty;
     return await r.json();
   } catch (e) {
     throw new Error(e.name === 'AbortError' ? 'timed out' : (e.message || String(e)));
@@ -594,7 +597,8 @@ export class MapsPanel {
       starttime: start, limit: QUAKE_LIMIT, orderby: 'time',
     })}`;
     try {
-      const [far, near] = await Promise.all([getJson(q(4, p.far)), p.near ? getJson(q(2, p.near)) : { features: [] }]);
+      const none = { features: [] };      // no quakes in range: EMSC sends 204, no body
+      const [far, near] = await Promise.all([getJson(q(4, p.far), none), p.near ? getJson(q(2, p.near), none) : none]);
       if (seq !== Q.seq) return;           // the viewer changed the settings meanwhile
       const seen = new Map();
       for (const f of [...far.features, ...near.features]) {
